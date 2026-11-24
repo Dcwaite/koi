@@ -1448,7 +1448,18 @@
             ctx.restore();
           }
         }
-        plate(x, y + (st.id === 'gate' ? 44 : st.lot === 'market' && st.id !== 'requests' ? 52 : 46), st.name);
+        else if (st.id === 'shows') {                    // a show stand: a judging table under a red and white banner, a rosette on top
+          ctx.fillStyle = 'rgba(2,6,10,0.32)'; ctx.fillRect(x - 36 + 6, y - 26 + 9, 72, 52);
+          ctx.fillStyle = '#3a2a1c'; ctx.fillRect(x - 36, y - 26, 72, 52);
+          for (k = 0; k < 6; k++) { ctx.fillStyle = k % 2 ? '#d8cdb6' : '#a0483a'; ctx.fillRect(x - 33 + k * 11, y - 23, 11, 16); }
+          ctx.fillStyle = '#23474a'; ctx.beginPath(); ctx.ellipse(x, y + 9, 24, 12, 0, 0, 6.2832); ctx.fill();   // the judging tub
+          ctx.fillStyle = '#c47a45'; ctx.beginPath(); ctx.ellipse(x - 3, y + 9, 10, 3.6, 0.3, 0, 6.2832); ctx.fill();
+          var won = game.showsWon ? game.showsWon() : 0;
+          ctx.fillStyle = '#a0483a'; ctx.beginPath(); ctx.moveTo(x + 22, y - 18); ctx.lineTo(x + 17, y - 2); ctx.lineTo(x + 22, y - 6); ctx.lineTo(x + 27, y - 2); ctx.closePath(); ctx.fill();
+          ctx.fillStyle = won ? '#dcbc5e' : '#8a6a4a'; ctx.beginPath(); ctx.arc(x + 22, y - 22, 8, 0, 6.2832); ctx.fill();
+          ctx.fillStyle = won ? '#a8873a' : '#5b4632'; ctx.beginPath(); ctx.arc(x + 22, y - 22, 3.5, 0, 6.2832); ctx.fill();
+        }
+        plate(x, y + (st.id === 'gate' ? 44 : st.lot === 'market' && st.id !== 'requests' && st.id !== 'shows' ? 52 : 46), st.name);
         if (ui && ui.marks && ui.marks[st.id]) ripeMark(x + st.w - 22, y - st.h + 14);
       }
     }

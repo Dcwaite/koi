@@ -29,13 +29,14 @@
     sell: { title: 'Sell' },
     dealer: { title: 'Koi dealer' },
     requests: { title: 'Requests' },
+    shows: { title: 'Koi shows' },
     garden: { title: 'Garden shop' },
     map: { title: 'Map' },
     build: { title: 'Build' },
     move: { title: 'Move to another pond' },
     menu: { title: 'Menu' }
   };
-  var ORDER = ['koi', 'map', 'requests', 'sell', 'dealer', 'garden', 'menu'];
+  var ORDER = ['koi', 'map', 'requests', 'shows', 'sell', 'dealer', 'garden', 'menu'];
   var COIN = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#dcbc5e" stroke="#a8873a"/></svg>';
   var ICON = {
     food: '<svg viewBox="0 0 24 24" stroke="none" fill="#dcc08a"><circle cx="8" cy="9" r="2.6"/><circle cx="15.5" cy="8" r="2.1"/><circle cx="12.5" cy="15.5" r="2.9"/></svg>',
@@ -225,6 +226,7 @@
     if (game.koi.length > 2) for (i = 0; i < game.requests.length; i++) if (game.matches(i).length) ready++;
     $('ready').hidden = !ready; $('ready').textContent = ready + (ready === 1 ? ' request ready' : ' requests ready');
     marks.requests = ready > 0; marks.sell = game.goodsWorth() > 0;
+    marks.shows = game.showEntrants(game.showNow()).length > 0;
     var gcap = game.gateCap(), gfull = game.gate.till >= gcap - 0.5;
     $('gatepill').className = 'pill small glass' + (gfull ? ' full' : '');
     put($('gatepill'), 'Gate ' + Math.floor(game.gate.till) + ' / ' + gcap + (gfull ? ' · full' : ''));
@@ -407,6 +409,29 @@
       }
       return h;
     },
+    shows: function () {
+      var now = game.showNow(), h, i, n;
+      h = '<p class="muted">Koi shows are held one after another. Win one to open the next. Each wants a particular koi, raised a particular way; a winner comes home with its ribbon.</p>';
+      h += '<p class="sub">' + game.showsWon() + ' of ' + S.SHOWS.length + ' shows won. Every win makes the garden better known.</p>';
+      for (i = 0; i < S.SHOWS.length; i++) {
+        var s = S.SHOWS[i], won = game.shows[s.id], lock = won ? '' : game.showLocked(s);
+        if (!won && s !== now) {                     // later shows: name only, so there is something to look forward to
+          h += '<div class="req"><div class="row"><div class="grow muted">🔒 ' + s.name + '</div>' + price(s.prize) + '</div></div>';
+          continue;
+        }
+        h += '<div class="req"><div class="row"><div class="grow"><div>' + (won ? '🏆 ' : '') + s.name + '</div><div class="sub">' + s.host + ' · ' + s.want + '</div>' +
+          (won ? '<div class="sub">Won by ' + won + '.</div>' : lock ? '<div class="sub">🔒 ' + lock + '</div>' : '') + '</div>' + price(s.prize) + '</div>';
+        if (!won && !lock) {
+          var ents = game.showEntrants(s);
+          h += '<div class="acts">';
+          for (n = 0; n < ents.length; n++) h += '<button class="gold" data-act="enter" data-show="' + s.id + '" data-koi="' + ents[n].id + '">Enter ' + ents[n].name + '</button>';
+          h += '</div>';
+          if (!ents.length) h += '<p class="sub">None of your koi fits yet. Breed for it, raise it, and carry it to the right pond.</p>';
+        }
+        h += '</div>';
+      }
+      return h;
+    },
     dealer: function () {
       var room = true, h, i;
       if (shopSel >= 0 && !game.offers[shopSel]) shopSel = -1;
@@ -447,12 +472,16 @@
     },
     map: function () {
       var st = game.stars(), rn = game.renown(), next = S.STARS[st];
-      var h = '<p class="muted">Six ponds, each opened a section at a time, and the street along the bottom. Tap a square to go there.</p><div class="plan">', r, c;
+      var h = '<p class="muted">Six ponds, each opened a section at a time, and the street along the bottom. Finish all four sections of a pond to unlock the next. Tap a square to go there.</p><div class="plan">', r, c;
+      function lockNote(pond) {
+        for (var i = 1; i < S.BIOMES.length; i++) if (S.BIOMES[i].id === pond) return 'After the ' + S.BIOMES[i - 1].name + ' (' + game.sections(S.BIOMES[i - 1].id) + '/4)';
+        return '';
+      }
       for (r = 0; r < S.ROWS; r++) for (c = 0; c < S.COLS; c++) {
         var a = areaAt(c, r), lot = game.lots[a.id], can = !lot && game.reachable(a.id);
         h += '<button data-act="lot" data-area="' + a.id + '" class="' + (lot ? 'k-' + lot.kind : can ? 'free' : 'far') + (a.biome ? ' b-' + a.biome : '') + '"' + (lot || can ? '' : ' disabled') + '>' +
           (lot ? '<b>' + (lot.kind === 'pond' ? S.THEME_NAMES[S.themeOf(a.id)] : S.KINDS[lot.kind].name) + '</b><span>' + (lot.kind === 'pond' ? (a.first ? game.pondCount(a.biome) + ' of ' + game.pondCap(a.biome) + ' koi' : '') : 'Level ' + lot.level) +
-            (game.tillCap(a.id) ? ' · ' + Math.floor(lot.till) + ' in till' : '') + '</span>' : can ? '<b>+</b><span>' + (a.biome ? S.THEME_NAMES[a.biome] : 'Build') + '</span>' : a.biome ? '<span>' + S.THEME_NAMES[a.biome] + '</span>' : '') + '</button>';
+            (game.tillCap(a.id) ? ' · ' + Math.floor(lot.till) + ' in till' : '') + '</span>' : can ? '<b>+</b><span>' + (a.biome ? S.THEME_NAMES[a.biome] : 'Build') + '</span>' : a.biome ? '<span>' + S.THEME_NAMES[a.biome] + (a.first && game.pondLocked(a.biome) ? '<br>🔒 ' + lockNote(a.biome) : '') + '</span>' : '') + '</button>';
       }
       return h + '</div>';
     },
@@ -511,8 +540,8 @@
         '<p><b>Feed</b> (bottom left): tap the water to drop food, or hold still and a koi that trusts you will eat from your hand. Drag to look around; the view stays where you leave it.</p>' +
         '<p><b>Play</b>: tap for a pebble, drag for ripples, and drag across the Zen Garden to rake the sand.</p>' +
         '<p><b>Watch</b> (bottom of the screen) is for sitting back: a caretaker feeds the koi and brings in the takings, more slowly than you, and keeps a quarter. Leave the screen alone and everything but the garden fades.</p>' +
-        '<p>The Koi book and the Map stand by the Home Pond. Selling, buying koi, requests and the garden shop are all at the Market, one swipe down.</p>' +
-        '<p>There are six ponds, and none joins another. Each grows in four sections, and each takes only koi of its own colours, so breed for them and carry them over: tap a koi, then Move.</p>' +
+        '<p>The Koi book and the Map stand by the Home Pond. Selling, buying koi, requests, koi shows and the garden shop are all at the Market, one swipe down.</p>' +
+        '<p>There are six ponds, and none joins another. Each grows in four sections, and the next pond only opens once every section of the one before it is built. Each takes only koi of its own colours, so breed for them and carry them over: tap a koi, then Move.</p>' +
         '<p>Tap open ground beside what you own to build on it. Tap a building to take the coins guests have left, or to upgrade it. </p>' +
         '<p>Guests pay at the ticket gate in the Market and throw food to the koi. The gate only holds so much: go and collect it, and upgrade it to hold more.</p>' +
         '<p>Tap a koi to see it, pair it or sell it. Tap a plant that glints to pick what it has grown, then sell it at the Market.</p>' +
@@ -697,6 +726,7 @@
     }
     else if (act === 'give') { k = game.byId(+el.getAttribute('data-koi')); if (game.fulfil(id, k && k.id) && selected === k) selected = null; }
     else if (act === 'pass') game.passRequest(id);
+    else if (act === 'enter') game.enterShow(el.getAttribute('data-show'), +el.getAttribute('data-koi'));
     else if (act === 'pick') { pick = selected; }
     else if (act === 'unpick') { pick = null; }
     else if (act === 'pair') { if (game.pair(pick.id, selected.id)) pick = null; }

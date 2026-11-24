@@ -98,6 +98,7 @@
     { id: 'map', name: 'Map', lot: 'home', dx: 560, dy: 332, w: 60, h: 52 },
     { id: 'gate', name: 'Ticket gate', lot: 'market', dx: -300, dy: 212, w: 96, h: 50 },
     { id: 'requests', name: 'Requests', lot: 'market', dx: -345, dy: -52, w: 62, h: 50 },
+    { id: 'shows', name: 'Koi shows', lot: 'market', dx: 345, dy: -52, w: 62, h: 50 },
     { id: 'sell', name: 'Sell', lot: 'market', dx: -190, dy: 69, w: 78, h: 48 },
     { id: 'dealer', name: 'Koi dealer', lot: 'market', dx: 0, dy: 69, w: 78, h: 48 },
     { id: 'garden', name: 'Garden shop', lot: 'market', dx: 190, dy: 69, w: 78, h: 48 }
@@ -341,6 +342,7 @@
     this.cues = [];           // things worth a sound: { k, x (0..1 across the pond), s }
     this.settledFor = 0;
     this.requests = [null, null, null]; this.requestWait = [0, 0, 0];
+    this.shows = {};                                       // show id -> the name of the koi that won it
     this.plants = [];
     this.hand = { x: 0, y: 0, on: false, offer: false };   // where the player's hand is over the water
     this.tossed = []; this.visitors = []; this.floaters = []; this.sparks = [];
@@ -688,10 +690,19 @@
   /* A plot can be built on once it is beside one you already have. */
   /* A section of a pond can be opened if it is that pond's first, or lies beside one already open.
      A plot on the street can be built on once it is beside something you have. */
+  /* The ponds open in order, each only once the one before it is fully built (all four sections open).
+     '' if this pond may be opened, else why not. A pond already open stays open. */
+  Game.prototype.pondLocked = function (pond) {
+    var i;
+    for (i = 1; i < BIOMES.length; i++) if (BIOMES[i].id === pond) break;
+    if (i >= BIOMES.length || this.sections(pond)) return '';
+    var prev = BIOMES[i - 1];
+    return this.sections(prev.id) >= 4 ? '' : 'Finish all four sections of the ' + prev.name + ' first.';
+  };
   Game.prototype.reachable = function (id) {
     var a = areaById(id), d, D = [[1, 0], [-1, 0], [0, 1], [0, -1]];
     if (!a) return false;
-    if (a.first) return true;
+    if (a.first) return !this.pondLocked(a.biome);
     for (d = 0; d < 4; d++) {
       var b = areaAt(a.col + D[d][0], a.row + D[d][1]);
       if (b && this.lots[b.id] && (!a.biome || b.biome === a.biome)) return true;
@@ -713,7 +724,8 @@
     if (this.lots[id]) return 'This plot is already built on.';
     if (a.biome && kind !== 'pond') return 'This is part of the ' + biomeById(a.biome).name + '.';
     if (!a.biome && kind === 'pond') return 'Ponds do not go on the street.';
-    if (!this.reachable(id)) return a.biome ? 'Open the section beside this one first.' : 'Build beside what you already have first.';
+    if (a.biome && this.pondLocked(a.biome)) return this.pondLocked(a.biome);
+    if (!this.reachable(id)) return a.biome ?'Open the section beside this one first.' : 'Build beside what you already have first.';
     if (this.coins < this.buildCost(id, kind)) return 'Needs ' + this.buildCost(id, kind) + ' coins.';
     return '';
   };
@@ -939,6 +951,7 @@
     r += 6 * this.bookCount();
     for (id in this.lots) r += KINDS[this.lots[id].kind].renown * LEVEL[this.lots[id].level - 1];
     r += 1.5 * Math.min(60, this.plants.length + this.pads.length);
+    r += 40 * Object.keys(this.shows || {}).length;      // every show won makes the garden better known
     return Math.round(r);
   };
   Game.prototype.stars = function () {
@@ -2190,13 +2203,89 @@
     return true;
   };
 
+  /* ---------- koi shows ----------
+     Contests held one after another. Each opens once the one before it is won and the garden has what it
+     needs (a pond open, a building built). Each asks for a koi of a certain kind, raised a certain way.
+     A koi that fits wins first prize and comes home again: shows take nothing from the pond. */
+  function phOf(k) { return phenotype(k.genes); }
+  function baseIs(k, ids) { return ids.indexOf(BASES[phOf(k).base].id) >= 0; }
+  function patIs(k, ids) { return ids.indexOf(PATTERNS[phOf(k).pattern].id) >= 0; }
+  function atLeast(k, stage) { return STAGES.indexOf(stageOf(k)) >= STAGES.indexOf(stage); }
+  var SHOWS = [
+    { id: 'fair', name: 'Village Fair', host: 'The village', prize: 200,
+      want: 'Any patched koi, grown to Adult.',
+      unlock: null,
+      fits: function (g, k) { return !patIs(k, ['patched']) ? 'Not patched.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
+    { id: 'blossom', name: 'Spring Blossom Show', host: 'The Spring pond society', prize: 400,
+      want: 'An orange or white koi with a pattern, living in the Spring pond, grown to Adult.',
+      unlock: { text: 'Open the Spring pond', ok: function (g) { return g.sections('spring') > 0; } },
+      fits: function (g, k) { return !baseIs(k, ['orange', 'white']) ? 'Not orange or white.' : patIs(k, ['solid']) ? 'Needs a pattern.' : k.pond !== 'spring' ? 'Must live in the Spring pond.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
+    { id: 'teacup', name: 'Tea House Cup', host: 'The tea house', prize: 600,
+      want: 'A saddled koi that trusts you.',
+      unlock: { text: 'Build a tea house', ok: function (g) { return g.built('tea') > 0; } },
+      fits: function (g, k) { return !patIs(k, ['saddle']) ? 'Not saddled.' : k.bond < 0.7 ? 'Does not trust you yet.' : ''; } },
+    { id: 'lotus', name: 'Lotus Moon Show', host: 'The temple garden', prize: 900,
+      want: 'A gold koi with a pattern, living in the Lotus pond, grown to Adult.',
+      unlock: { text: 'Open the Lotus pond', ok: function (g) { return g.sections('lotus') > 0; } },
+      fits: function (g, k) { return !baseIs(k, ['gold']) ? 'Not gold.' : patIs(k, ['solid']) ? 'Needs a pattern.' : k.pond !== 'lotus' ? 'Must live in the Lotus pond.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
+    { id: 'maple', name: 'Maple Harvest Show', host: 'The harvest festival', prize: 1300,
+      want: 'A speckled koi living in the Maple pond, grown to Adult.',
+      unlock: { text: 'Open the Maple pond and find 20 kinds of koi', ok: function (g) { return g.sections('maple') > 0 && g.bookCount() >= 20; } },
+      fits: function (g, k) { return !patIs(k, ['speckled']) ? 'Not speckled.' : k.pond !== 'maple' ? 'Must live in the Maple pond.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
+    { id: 'snow', name: 'First Snow Show', host: 'The mountain inn', prize: 2000,
+      want: 'A slate koi living in the Snow pond, grown to Adult.',
+      unlock: { text: 'Open the Snow pond', ok: function (g) { return g.sections('snow') > 0; } },
+      fits: function (g, k) { return !baseIs(k, ['slate']) ? 'Not slate.' : k.pond !== 'snow' ? 'Must live in the Snow pond.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
+    { id: 'lantern', name: 'Lantern Night', host: 'The lantern festival', prize: 3500,
+      want: 'A crowned charcoal or slate koi, living in the Lantern pond, grown to Elder.',
+      unlock: { text: 'Open the Lantern pond', ok: function (g) { return g.sections('lantern') > 0; } },
+      fits: function (g, k) { return !baseIs(k, ['charcoal', 'slate']) ? 'Not charcoal or slate.' : !patIs(k, ['crown']) ? 'Not crowned.' : k.pond !== 'lantern' ? 'Must live in the Lantern pond.' : !atLeast(k, 'Elder') ? 'Not an Elder yet.' : ''; } },
+    { id: 'grand', name: 'Grand Champion', host: 'A collector from the city', prize: 8000,
+      want: 'A crowned koi with gold markings that trusts you, grown to Elder.',
+      unlock: { text: 'Build every section of all six ponds and earn 5 stars', ok: function (g) { for (var i = 0; i < BIOMES.length; i++) if (g.sections(BIOMES[i].id) < 4) return false; return g.stars() >= 5; } },
+      fits: function (g, k) { var ph = phOf(k); return !patIs(k, ['crown']) ? 'Not crowned.' : ph.second < 0 || SECONDS[ph.second].id !== 'gold' ? 'No gold markings.' : k.bond < 0.7 ? 'Does not trust you yet.' : !atLeast(k, 'Elder') ? 'Not an Elder yet.' : ''; } }
+  ];
+  /* The show now being held: the first not yet won. Null once all are won. */
+  Game.prototype.showNow = function () {
+    for (var i = 0; i < SHOWS.length; i++) if (!this.shows[SHOWS[i].id]) return SHOWS[i];
+    return null;
+  };
+  Game.prototype.showsWon = function () { return Object.keys(this.shows).length; };
+  /* '' if the show is open for entries, else what the garden still needs. */
+  Game.prototype.showLocked = function (s) {
+    if (this.shows[s.id]) return 'Already won.';
+    if (s !== this.showNow()) return 'Win the shows before it first.';
+    return s.unlock && !s.unlock.ok(this) ? s.unlock.text + ' first.' : '';
+  };
+  /* Why this koi cannot enter the show, or '' if it can. */
+  Game.prototype.canEnter = function (s, k) {
+    if (!k || this.koi.indexOf(k) < 0) return 'No such koi.';
+    if (!this.revealed(k)) return 'Its colours are not in yet.';
+    return this.showLocked(s) || s.fits(this, k);
+  };
+  Game.prototype.showEntrants = function (s) {
+    var out = [], i;
+    if (!s || this.showLocked(s)) return out;
+    for (i = 0; i < this.koi.length; i++) if (!this.canEnter(s, this.koi[i])) out.push(this.koi[i]);
+    return out;
+  };
+  Game.prototype.enterShow = function (showId, koiId) {
+    var s = null, i, k = this.byId(koiId);
+    for (i = 0; i < SHOWS.length; i++) if (SHOWS[i].id === showId) s = SHOWS[i];
+    if (!s || this.canEnter(s, k)) return false;
+    this.shows[s.id] = k.name;
+    this.coins += s.prize;
+    this.events.push({ kind: 'unlock', text: k.name + ' won the ' + s.name + '! ' + s.prize + ' coins.' });
+    return true;
+  };
+
   /* ---------- saving ---------- */
   Game.prototype.toJSON = function () {
     var W = this.W, H = this.H;
     return {
       v: 1, layout: 6, goods: this.goods, seed: this.seed, coins: this.coins, coinFrac: this.coinFrac, nextId: this.nextId,
       pondTime: this.pondTime, book: this.book, pairs: this.pairs, offers: this.offers, offerLeft: this.offerLeft,
-      requests: this.requests, requestWait: this.requestWait, plants: this.plants, popped: this.popped,
+      requests: this.requests, requestWait: this.requestWait, plants: this.plants, popped: this.popped, shows: this.shows,
       lots: this.lots, stats: this.stats, goal: this.goal, gate: this.gate, cam: { x: this.cam.x, y: this.cam.y },
       koi: this.koi.map(function (k) {
         return { id: k.id, name: k.name, genes: k.genes, seed: k.seed, sizePot: k.sizePot, growth: k.growth, full: k.full,
@@ -2217,6 +2306,7 @@
     g.requests = d.requests || [null, null, null]; g.requestWait = d.requestWait || [0, 0, 0];
     g.plants = d.plants || []; g.popped = d.popped || 0;
     g.goods = d.goods || {};
+    g.shows = d.shows || {};
     if (d.lots) {
       g.lots = {};
       Object.keys(d.lots).forEach(function (id) { if (areaById(id) && KINDS[d.lots[id].kind]) g.lots[id] = d.lots[id]; });
@@ -2279,7 +2369,7 @@
   };
 
   var api = { Game: Game, T: T, DT: DT, AREAS: AREAS, AW: AW, AH: AH, COLS: COLS, ROWS: ROWS, areaById: areaById,
-              SHAPES: SHAPES, outline: outline, blobPoint: blobPoint, GOODS: GOODS, CROP: CROP, KINDS: KINDS, LEVEL: LEVEL, STATIONS: STATIONS, GATE: GATE, LAKE: LAKE, THEMES: THEMES, THEME_NAMES: THEME_NAMES, themeOf: themeOf, BIOMES: BIOMES, biomeById: biomeById, STARS: STARS, GOALS: GOALS, areaAt: areaAt, GATES: GATES, PATHS: PATHS, WALL: WALL, inBlob: inBlob, PLANTS: PLANTS, TEMPERS: TEMPERS, STAGES: STAGES, VARIETIES: VARIETIES,
+              SHAPES: SHAPES, outline: outline, blobPoint: blobPoint, GOODS: GOODS, CROP: CROP, KINDS: KINDS, LEVEL: LEVEL, STATIONS: STATIONS, GATE: GATE, LAKE: LAKE, THEMES: THEMES, THEME_NAMES: THEME_NAMES, themeOf: themeOf, BIOMES: BIOMES, biomeById: biomeById, STARS: STARS, GOALS: GOALS, SHOWS: SHOWS, areaAt: areaAt, GATES: GATES, PATHS: PATHS, WALL: WALL, inBlob: inBlob, PLANTS: PLANTS, TEMPERS: TEMPERS, STAGES: STAGES, VARIETIES: VARIETIES,
               outcomes: outcomes, bondWord: bondWord, BASES: BASES, PATTERNS: PATTERNS, SECONDS: SECONDS, BOOK_TOTAL: BOOK_TOTAL,
               phenotype: phenotype, varietyName: varietyName, varietyKey: varietyKey, rarity: rarity,
               inherit: inherit, randomGenes: randomGenes, stageOf: stageOf,
