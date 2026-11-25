@@ -294,7 +294,8 @@
   /* ---------- after Save and exit: the water, still, and a way back ---------- */
   var restEl = el('div'); restEl.id = 'rest'; restEl.hidden = true;
   restEl.innerHTML = '<div class="restcard" role="dialog" aria-modal="true" aria-labelledby="restT">' +
-    '<h1 id="restT">Koi</h1><p>Your pond is saved. The koi will be here when you come back.</p>' +
+    '<img class="restmark" src="assets/brand/icon.svg" alt="" width="112" height="112">' +
+    '<h1 id="restT">Koi Keeper</h1><p>Your pond is saved. The koi will be here when you come back.</p>' +
     '<button type="button" class="act sell">Back to the water</button></div>';
   document.body.appendChild(restEl);
   var restBtn = restEl.querySelector('button');

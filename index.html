@@ -3,7 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Koi</title>
+<title>Koi Keeper</title>
+<meta name="description" content="Keep a quiet koi pond: feed them, watch them grow, and fill the koi book.">
+<meta name="theme-color" content="#14171f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Koi Keeper">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="assets/brand/icon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/brand/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="assets/brand/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #14171f; color: #e9e4d8;
     font: 15px/1.5 Georgia, "Iowan Old Style", serif; }
@@ -18,14 +28,14 @@
   body.calm header p.sky { opacity: 0; }
   body.calm #shopBtn { opacity: 0; transition: opacity 1.2s ease-in; }
 </style>
-<link rel="stylesheet" href="shop.css?v=9">
+<link rel="stylesheet" href="shop.css?v=11">
 </head>
 <body>
 <canvas id="c"></canvas>
 <header id="hd"><p class="hint">tap to feed, drag to stir the water.</p><p class="sky" id="skyLbl"></p></header>
-<script src="pond.js?v=9"></script>
-<script src="sky.js?v=9"></script>
-<script src="audio.js?v=9"></script>
+<script src="pond.js?v=11"></script>
+<script src="sky.js?v=11"></script>
+<script src="audio.js?v=11"></script>
 <script>
 (function () {
   'use strict';
@@ -619,7 +629,7 @@
     try { localStorage.removeItem(SAVE_KEY); } catch (err) {}
     location.replace(location.pathname);
   }
-  window.KoiGame = { pond: function () { return pond; }, save: save, startOver: startOver, saving: function () { return saving; },
+  window.KoiGame = { pond: function () { return pond; }, render: function () { render(); }, save: save, startOver: startOver, saving: function () { return saving; },
                      schemes: SCHEMES, scheme: function () { return scheme.id; }, setScheme: setScheme };
   if (demo) {
     // test-only: fixed pebbles, stepped synchronously so a screenshot has something to show
@@ -636,7 +646,7 @@
   start();
 })();
 </script>
-<script src="shop.js?v=9"></script>
-<script src="menu.js?v=9"></script>
+<script src="shop.js?v=11"></script>
+<script src="menu.js?v=11"></script>
 </body>
 </html>

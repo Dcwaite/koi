@@ -160,7 +160,8 @@
 #rest[hidden] { display: none; }
 @keyframes rest-in { from { opacity: 0; } }
 .restcard { text-align: center; max-width: 420px; }
-.restcard h1 { margin: 0; font: bold 84px/1 Georgia, "Iowan Old Style", serif; letter-spacing: 0.04em; color: var(--cream); text-shadow: 0 4px 24px rgba(0,0,0,0.6); }
+.restcard .restmark { display: block; margin: 0 auto 18px; width: 112px; height: 112px; filter: drop-shadow(0 8px 20px rgba(0,0,0,0.5)); }
+.restcard h1 { margin: 0; font: bold 64px/1.05 Georgia, "Iowan Old Style", serif; letter-spacing: 0.04em; color: var(--cream); text-shadow: 0 4px 24px rgba(0,0,0,0.6); }
 .restcard p { margin: 14px 0 26px; font-size: 18px; color: #d9c7a3; }
 .restcard .act { width: auto; padding: 0 28px; }
 body.resting #shopBtn, body.resting #more { visibility: hidden; }
@@ -296,3 +297,5 @@ body.resting #shopBtn, body.resting #more { visibility: hidden; }
   .stall, .stamp, .plate.bump, .banner, #more, #rest { animation: none; }
   .plate .gain { animation-duration: 2s; animation-timing-function: linear; }
 }
+
+@media (max-width: 640px) { .restcard h1 { font-size: 46px; } .restcard .restmark { width: 88px; height: 88px; } }
