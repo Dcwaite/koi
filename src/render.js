@@ -510,6 +510,12 @@
         ctx.fillStyle = 'rgba(0,0,0,0.18)'; oval(-4, 0, 6, 17);
         ctx.fillStyle = hair; oval(2, 0, 8.6, 8.6);                                                    // head
         if (hat) { ctx.fillStyle = '#c8b68a'; oval(2, 0, v.keeper ? 16 : 13.5, v.keeper ? 16 : 13.5); ctx.fillStyle = '#a8956a'; oval(2, 0, v.keeper ? 4 : 6.5, v.keeper ? 4 : 6.5); }
+        if (v.painting) {                                  // an easel with the picture coming along on it
+          ctx.fillStyle = '#5b4632'; ctx.fillRect(24, -17, 5, 34);
+          ctx.fillStyle = '#e9e1cc'; ctx.fillRect(29, -14, 6, 28);
+          ctx.fillStyle = '#4f8a9a'; ctx.fillRect(30, -12, 4, 14 * Math.min(1, (v.age % 60) / 30) + 2);
+          ctx.fillStyle = '#c47a45'; ctx.fillRect(30, 4, 4, 4);
+        }
         ctx.restore();
       }
       ctx.globalAlpha = 1;
@@ -551,32 +557,28 @@
       lantern: { ground: '8,10,26', ga: 0.46, water: '6,8,30', wa: 0.42 },
       spring: { ground: '96,150,90', ga: 0.24, water: '70,150,120', wa: 0.17 }
     };
+    /* The season in force, and the next one as it fades in: [{ th, m, a }] with a its weight. */
     function moodPonds() {
-      var out = [], ws = game.waterAreas(), i;
-      for (i = 0; i < ws.length; i++) { var th = S.themeOf(ws[i].id); if (MOOD[th]) out.push({ id: ws[i].id, sh: S.SHAPES[ws[i].id], th: th, m: MOOD[th] }); }
+      var se = game.season(), out = [];
+      if (MOOD[se.id] && se.mix < 1) out.push({ th: se.id, m: MOOD[se.id], a: 1 - se.mix });
+      if (MOOD[se.next.id] && se.mix > 0) out.push({ th: se.next.id, m: MOOD[se.next.id], a: se.mix });
       return out;
     }
+    function weightOf(ps, th) { for (var i = 0; i < ps.length; i++) if (ps[i].th === th) return ps[i].a; return 0; }
     function moodWash(ps, onWater) {
-      for (var i = 0; i < S.BIOMES.length; i++) {
-        var b = S.BIOMES[i], m = MOOD[b.id];
-        if (!m || !game.sections(b.id)) continue;
-        var cx = (b.c0 + 1) * AW, cy = (b.r0 + 1) * AH;
-        if (onWater) { ctx.fillStyle = 'rgba(' + m.water + ',' + m.wa + ')'; ctx.fillRect(cx - AW, cy - AH, 2 * AW, 2 * AH); continue; }
-        // the ground takes the pond's colour too, fading out toward its neighbours
-        ctx.save(); ctx.translate(cx, cy); ctx.scale(1, AH / AW);
-        var g = ctx.createRadialGradient(0, 0, 0, 0, 0, AW * 1.45);
-        g.addColorStop(0, 'rgba(' + m.ground + ',' + m.ga + ')'); g.addColorStop(0.82, 'rgba(' + m.ground + ',' + m.ga + ')'); g.addColorStop(1, 'rgba(' + m.ground + ',0)');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, AW * 1.45, 0, 6.2832); ctx.fill();
-        ctx.restore();
+      for (var i = 0; i < ps.length; i++) {
+        var m = ps[i].m;
+        ctx.fillStyle = 'rgba(' + (onWater ? m.water : m.ground) + ',' + ((onWater ? m.wa : m.ga) * ps[i].a).toFixed(3) + ')';
+        ctx.fillRect(game.cam.x, game.cam.y, W, H);
       }
     }
     /* What floats on a pond of each mood. Drawn inside the water. */
     function moodFloat(ps) {
       var cam = game.cam, t = game.time, i, k;
       for (i = 0; i < ps.length; i++) {
-        var q = ps[i], sh = q.sh;
-        if (sh.cx < cam.x - 900 || sh.cx > cam.x + W + 900 || sh.cy < cam.y - 600 || sh.cy > cam.y + H + 600) continue;
-        var rng = Wt.mulberry32(900 + sh.cx + sh.cy * 3), n = q.th === 'maple' ? 30 : q.th === 'lotus' ? 16 : q.th === 'lantern' ? 13 : q.th === 'spring' ? 22 : 9;
+        var q = ps[i], sh = { cx: AW / 2, cy: AH / 2 };
+        ctx.globalAlpha = q.a;
+        var rng = Wt.mulberry32(900 + q.th.length * 77 + q.th.charCodeAt(0)), n = q.th === 'maple' ? 30 : q.th === 'lotus' ? 16 : q.th === 'lantern' ? 13 : q.th === 'spring' ? 22 : 9;
         for (k = 0; k < n; k++) {
           var p0 = [sh.cx + (rng() - 0.5) * 1560, sh.cy + (rng() - 0.5) * 960], ph = rng() * 6.283, sz = rng();
           var x = p0[0] + Math.sin(t * 0.13 + ph) * 16, y = p0[1] + Math.cos(t * 0.11 + ph * 1.7) * 12;
@@ -610,16 +612,19 @@
           }
         }
       }
+      ctx.globalAlpha = 1;
     }
     /* Snow falling, when the pond in view is a snowy one. */
     function drawSnowfall() {
-      var cam = game.cam, a = game.areaUnder(cam.x + W / 2, cam.y + H / 2), t = game.time, i;
-      if (game.kindOf(a.id) !== 'pond' || S.themeOf(a.id) !== 'snow') return;
+      var cam = game.cam, t = game.time, i, sw = weightOf(moodPonds(), 'snow');
+      if (sw < 0.01) return;
+      ctx.globalAlpha = sw;
       ctx.fillStyle = 'rgba(245,248,252,0.8)';
       for (i = 0; i < 90; i++) {
         var sp = 26 + (i % 7) * 7, x = cam.x + (((i * 137.5 + Math.sin(t * 0.6 + i) * 22 + t * 9) % W) + W) % W, y = cam.y + ((i * 71.3 + t * sp) % H);
         ctx.beginPath(); ctx.arc(x, y, 1.3 + (i % 3) * 0.8, 0, 6.2832); ctx.fill();
       }
+      ctx.globalAlpha = 1;
     }
 
     /* ---------- what ties the garden together: paths, trees, lanterns, the wall and its gates ---------- */
@@ -631,7 +636,7 @@
       for (i = 0; i < 900; i++) { c.fillStyle = rng() < 0.5 ? 'rgba(220,214,196,0.13)' : 'rgba(10,12,10,0.2)'; c.fillRect(rng() * T2, rng() * T2, 1.5 + rng() * 2, 1.5 + rng() * 2); }
       gravelPat = ctx.createPattern(cv, 'repeat');
 
-      var WW = S.COLS * AW, WH = S.ROWS * AH, SH = S.SHAPES;
+      var WW = AW, WH = AH, SH = S.SHAPES;
       scene = { paths: [], stones: [], trees: [], lamps: [] };
       function curve(ax, ay, bx, by, bend) {
         var mx = (ax + bx) / 2, my = (ay + by) / 2, d = Math.hypot(bx - ax, by - ay), nx = -(by - ay) / d, ny = (bx - ax) / d, pts = [], t;
@@ -643,16 +648,12 @@
         var path = new Path2D(); path.moveTo(ax, ay); path.quadraticCurveTo(cx, cy, bx, by);
         scene.paths.push({ path: path, pts: pts });
       }
-      for (i = 0; i < S.PATHS.length; i++) {
-        var A = SH[S.PATHS[i][0]], B = SH[S.PATHS[i][1]];
-        curve(A.cx, A.cy, B.cx, B.cy, (rng() - 0.5) * 110);
-      }
-      var gateTo = ['p34', 'p20', 'p02', 'p52'];
-      for (i = 0; i < S.GATES.length; i++) curve(S.GATES[i].x - Math.cos(S.GATES[i].a) * 60, S.GATES[i].y - Math.sin(S.GATES[i].a) * 60, SH[gateTo[i]].cx, SH[gateTo[i]].cy, (rng() - 0.5) * 60);
-      function inShape(x, y, k2) {
-        for (var id in SH) { var q = SH[id]; if (S.inBlob({ cx: q.cx, cy: q.cy, rx: q.rx * k2, ry: q.ry * k2, lobes: q.lobes }, x, y)) return true; }
-        return false;
-      }
+      // a walk in from the gate, a promenade past the stalls, and a path up each side of the lake
+      curve(S.GATES[0].x, WH - 40, S.GATES[0].x - 30, 880, 0);
+      curve(150, 880, 1450, 880, -24);
+      curve(130, 890, 118, 170, 36);
+      curve(1470, 890, 1482, 170, -36);
+      function inShape(x, y, k2) { return game.depth(x, y) > -40 * k2; }
       function nearPath(x, y, lim) {
         for (var a = 0; a < scene.paths.length; a++) {
           var ps = scene.paths[a].pts;
@@ -670,18 +671,20 @@
           scene.stones.push({ x: ps[k][0] + (rng() - 0.5) * 8, y: ps[k][1] + (rng() - 0.5) * 8, a: ang + 1.57 + (rng() - 0.5) * 0.4, L: 20 + rng() * 6, w: 12 + rng() * 4, c: (rng() * 3) | 0 });
           if (k % 14 === 7) {
             var side = (i + k) % 4 < 2 ? 1 : -1, lx = ps[k][0] - Math.sin(ang) * 62 * side, ly = ps[k][1] + Math.cos(ang) * 62 * side;
-            if (!inShape(lx, ly, 1.1) && !nearChannel(lx, ly)) scene.lamps.push({ x: lx, y: ly });
+            if (!inShape(lx, ly, 1.1) && !nearStation(lx, ly, 80) && lx > 70 && lx < WW - 70 && ly > 70 && ly < WH - 70) scene.lamps.push({ x: lx, y: ly });
           }
         }
       }
       // trees and shrubs wherever there is open ground
       var KINDS = ['maple', 'maple', 'pine', 'pine', 'cherry', 'bush', 'bush', 'bush'];
-      for (i = 0; i < 4000 && scene.trees.length < 430; i++) {
-        var x = 110 + rng() * (WW - 220), y = 110 + rng() * (WH - 220), kind = KINDS[(rng() * KINDS.length) | 0];
-        var R = kind === 'bush' ? 24 + rng() * 18 : 48 + rng() * 40, okay = true;
-        if (inShape(x, y, 1.0 + (R + 50) / 500) || nearPath(x, y, R + 104)) continue;
+      for (i = 0; i < 4000 && scene.trees.length < 70; i++) {
+        var x = 70 + rng() * (WW - 140), y = 70 + rng() * (WH - 140), kind = KINDS[(rng() * KINDS.length) | 0];
+        var R = kind === 'bush' ? 22 + rng() * 16 : 40 + rng() * 34, okay = true;
+        if (game.depth(x, y) > -(R * 0.6 + 26) || nearPath(x, y, R + 34) || nearStation(x, y, R + 70)) continue;
+        if (S.inBlob({ cx: SH.tea.cx, cy: SH.tea.cy, rx: SH.tea.rx * 1.25, ry: SH.tea.ry * 1.3, lobes: [] }, x, y)) continue;
+        if (Math.hypot(x - game.fallsAt[0], y - game.fallsAt[1]) < 150 || (Math.abs(x - S.ISLE.x) < 90 && y < S.ISLE.y)) continue;
         for (k = 0; k < scene.trees.length; k++) if (Math.hypot(scene.trees[k].x - x, scene.trees[k].y - y) < (scene.trees[k].R + R) * 0.8) { okay = false; break; }
-        for (k = 0; k < S.GATES.length; k++) if (Math.hypot(S.GATES[k].x - x, S.GATES[k].y - y) < 240) okay = false;
+        for (k = 0; k < S.GATES.length; k++) if (Math.hypot(S.GATES[k].x - x, S.GATES[k].y - y) < 220) okay = false;
         if (okay) scene.trees.push({ x: x, y: y, R: R, kind: kind, seed: (rng() * 1e9) | 0 });
       }
       scene.trees.sort(function (a, b) { return a.y - b.y; });
@@ -727,7 +730,7 @@
       }
     }
     function drawTrees() {
-      var cam = game.cam, i, k;
+      var cam = game.cam, i, k, snowW = weightOf(moodPonds(), 'snow');
       for (i = 0; i < scene.trees.length; i++) {
         var t = scene.trees[i], R = t.R;
         if (t.x < cam.x - 160 || t.x > cam.x + W + 160 || t.y < cam.y - 160 || t.y > cam.y + H + 160) continue;
@@ -761,6 +764,11 @@
             ctx.globalAlpha = 1;
           }
         }
+        if (snowW > 0.02) {                            // snow lying on the branches
+          ctx.globalAlpha = snowW * 0.7; ctx.fillStyle = '#eef2f5';
+          oval(x - R * 0.18, y - R * 0.22, R * 0.55, R * 0.4); oval(x + R * 0.25, y + R * 0.05, R * 0.3, R * 0.22);
+          ctx.globalAlpha = 1;
+        }
       }
     }
     function drawLamps() {
@@ -777,7 +785,7 @@
       }
     }
     function drawWall() {
-      var WW = S.COLS * AW, WH = S.ROWS * AH, t = S.WALL, gap = 120, i;
+      var WW = AW, WH = AH, t = S.WALL, gap = 120, i, gx = S.GATES[0].x;
       // beyond the wall: the dark of the woods
       ctx.fillStyle = '#0f1512';
       ctx.fillRect(-4000, -4000, WW + 8000, 4000); ctx.fillRect(-4000, WH, WW + 8000, 4000);
@@ -790,10 +798,8 @@
         ctx.fillStyle = 'rgba(210,216,206,0.18)';
         if (w > h) ctx.fillRect(x, y + h / 2 - 9, w, 3); else ctx.fillRect(x + w / 2 - 9, y, 3, h);
       }
-      run(0, 0, WW / 2 - gap, t); run(WW / 2 + gap, 0, WW / 2 - gap, t);
-      run(0, WH - t, WW / 2 - gap, t); run(WW / 2 + gap, WH - t, WW / 2 - gap, t);
-      run(0, 0, t, WH / 2 - gap); run(0, WH / 2 + gap, t, WH / 2 - gap);
-      run(WW - t, 0, t, WH / 2 - gap); run(WW - t, WH / 2 + gap, t, WH / 2 - gap);
+      run(0, 0, WW, t); run(0, 0, t, WH); run(WW - t, 0, t, WH);
+      run(0, WH - t, gx - gap, t); run(gx + gap, WH - t, WW - gx - gap, t);
       // a gate in each side: two posts and a beam, the red of old lacquer
       for (i = 0; i < S.GATES.length; i++) {
         var g = S.GATES[i];
@@ -1092,44 +1098,108 @@
        and a wooden bridge over the deep middle. Koi swim under and between. */
     /* The headland where a pond's four sections meet: a mound of moss and stones with a pine and a lantern.
        A cape while the pond is small; an island once all four sections are open. */
-    function drawHeadlands() {
-      var cam = game.cam, i, k;
-      for (i = 0; i < S.BIOMES.length; i++) {
-        var b = S.BIOMES[i];
-        if (!game.sections(b.id)) continue;
-        var x = (b.c0 + 1) * AW, y = (b.r0 + 1) * AH, rng = Wt.mulberry32(61 + i * 13);
-        if (x < cam.x - 500 || x > cam.x + W + 500 || y < cam.y - 400 || y > cam.y + H + 400) continue;
-        for (k = 0; k < 16; k++) {                    // moss
-          var a = rng() * 6.283, d = Math.sqrt(rng()), mx = x + Math.cos(a) * d * 250, my = y + Math.sin(a) * d * 165;
-          if (game.depth(mx, my) > -26) continue;
-          ctx.fillStyle = ['#3a5738', '#466841', '#34503a'][k % 3];
-          ctx.beginPath(); ctx.ellipse(mx, my, 40 + rng() * 40, 28 + rng() * 26, rng() * 3, 0, 6.2832); ctx.fill();
-        }
-        for (k = 0; k < 5; k++) {                     // a few standing stones
-          var sa = rng() * 6.283, sx = x + Math.cos(sa) * 150, sy = y + Math.sin(sa) * 95, sr = 16 + rng() * 14;
-          if (game.depth(sx, sy) > -30) continue;
-          ctx.fillStyle = 'rgba(2,6,10,0.3)'; ctx.beginPath(); ctx.ellipse(sx + 5, sy + 8, sr * 1.2, sr * 0.9, 0.3, 0, 6.2832); ctx.fill();
-          ctx.fillStyle = k % 2 ? '#6d7571' : '#5b6360'; ctx.beginPath(); ctx.ellipse(sx, sy, sr * 1.15, sr * 0.85, rng() * 3, 0, 6.2832); ctx.fill();
-          ctx.fillStyle = 'rgba(210,216,204,0.16)'; ctx.beginPath(); ctx.ellipse(sx - 4, sy - 4, sr * 0.6, sr * 0.4, 0, 0, 6.2832); ctx.fill();
-        }
-        // a stone lantern, lit after dusk
-        var lx = x + 70, ly = y + 40;
-        ctx.fillStyle = 'rgba(2,6,10,0.3)'; ctx.fillRect(lx - 13 + 5, ly - 13 + 8, 26, 26);
-        ctx.fillStyle = '#74776f'; ctx.fillRect(lx - 14, ly - 14, 28, 28);
-        ctx.fillStyle = '#8b8e85'; ctx.fillRect(lx - 9, ly - 9, 18, 18);
-        ctx.fillStyle = '#5f625b'; ctx.fillRect(lx - 4, ly - 4, 8, 8);
-        lanterns.push([lx, ly]);
-        // an old pine, leaning out over the water
-        var sway = Math.sin(game.time * 0.5 + i) * 2.5, px = x - 60 + sway, py = y - 30, R = 96, n = 9, layer;
-        ctx.fillStyle = 'rgba(2,6,10,0.28)'; ctx.beginPath(); ctx.ellipse(px + R * 0.3, py + R * 0.42, R, R * 0.88, 0, 0, 6.2832); ctx.fill();
-        for (layer = 0; layer < 3; layer++) {
-          var rr = R * (1 - layer * 0.28);
-          ctx.fillStyle = ['#24382d', '#2e4636', '#3a5641'][layer];
-          ctx.beginPath();
-          for (k = 0; k < n * 2; k++) { var pa = 0.4 + layer * 0.35 + k * Math.PI / n, pd = k % 2 ? rr * 0.55 : rr; ctx.lineTo(px + sway * layer * 0.4 + Math.cos(pa) * pd, py + Math.sin(pa) * pd); }
-          ctx.closePath(); ctx.fill();
-        }
+    function drawIsland() {
+      var x = S.ISLE.x, y = S.ISLE.y, rng = Wt.mulberry32(61), k;
+      for (k = 0; k < 12; k++) {                    // moss
+        var a = rng() * 6.283, d = Math.sqrt(rng()), mx = x + Math.cos(a) * d * 70, my = y + Math.sin(a) * d * 44;
+        if (game.depth(mx, my) > -10) continue;
+        ctx.fillStyle = ['#3a5738', '#466841', '#34503a'][k % 3];
+        ctx.beginPath(); ctx.ellipse(mx, my, 20 + rng() * 18, 14 + rng() * 12, rng() * 3, 0, 6.2832); ctx.fill();
       }
+      for (k = 0; k < 5; k++) {                     // stones at the water's edge
+        var sa = 0.6 + k * 1.15 + rng() * 0.4, sx = x + Math.cos(sa) * 78, sy = y + Math.sin(sa) * 50, sr = 9 + rng() * 8;
+        ctx.fillStyle = 'rgba(2,6,10,0.3)'; ctx.beginPath(); ctx.ellipse(sx + 4, sy + 6, sr * 1.2, sr * 0.9, 0.3, 0, 6.2832); ctx.fill();
+        ctx.fillStyle = k % 2 ? '#6d7571' : '#5b6360'; ctx.beginPath(); ctx.ellipse(sx, sy, sr * 1.15, sr * 0.85, rng() * 3, 0, 6.2832); ctx.fill();
+      }
+      var lx = x + 40, ly = y + 16;                  // a stone lantern, lit after dusk
+      ctx.fillStyle = 'rgba(2,6,10,0.3)'; ctx.fillRect(lx - 10 + 4, ly - 10 + 6, 20, 20);
+      ctx.fillStyle = '#74776f'; ctx.fillRect(lx - 11, ly - 11, 22, 22);
+      ctx.fillStyle = '#8b8e85'; ctx.fillRect(lx - 7, ly - 7, 14, 14);
+      ctx.fillStyle = '#5f625b'; ctx.fillRect(lx - 3, ly - 3, 6, 6);
+      lanterns.push([lx, ly]);
+      var sway = Math.sin(game.time * 0.5) * 2, px = x - 22 + sway, py = y - 12, R = 58, n = 9, layer;   // an old pine
+      ctx.fillStyle = 'rgba(2,6,10,0.28)'; ctx.beginPath(); ctx.ellipse(px + R * 0.3, py + R * 0.42, R, R * 0.88, 0, 0, 6.2832); ctx.fill();
+      for (layer = 0; layer < 3; layer++) {
+        var rr = R * (1 - layer * 0.28);
+        ctx.fillStyle = ['#24382d', '#2e4636', '#3a5641'][layer];
+        ctx.beginPath();
+        for (k = 0; k < n * 2; k++) { var pa = 0.4 + layer * 0.35 + k * Math.PI / n, pd = k % 2 ? rr * 0.55 : rr; ctx.lineTo(px + sway * layer * 0.4 + Math.cos(pa) * pd, py + Math.sin(pa) * pd); }
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    /* The moon bridge: red rails over the water from the top bank to the island. */
+    function drawMoonBridge() {
+      var x = S.ISLE.x, y1 = S.ISLE.y - S.ISLE.ry + 26, y0 = y1, wide = 54, yy;
+      while (y0 > 50 && game.depth(x, y0) > -12) y0 -= 4;
+      y0 -= 8;
+      var len = y1 - y0;
+      ctx.fillStyle = 'rgba(2,6,10,0.28)'; ctx.fillRect(x - wide / 2 + 16, y0 + 22, wide, len - 12);
+      var g = ctx.createLinearGradient(0, y0, 0, y1);
+      g.addColorStop(0, '#6b4a36'); g.addColorStop(0.5, '#a0724f'); g.addColorStop(1, '#6b4a36');
+      ctx.fillStyle = g; ctx.fillRect(x - wide / 2, y0, wide, len);
+      ctx.strokeStyle = 'rgba(30,20,12,0.4)'; ctx.lineWidth = 1.4; ctx.beginPath();
+      for (yy = y0 + 10; yy < y1; yy += 12) { ctx.moveTo(x - wide / 2 + 6, yy); ctx.lineTo(x + wide / 2 - 6, yy); }
+      ctx.stroke();
+      ctx.fillStyle = '#a0483a'; ctx.fillRect(x - wide / 2 - 4, y0, 7, len); ctx.fillRect(x + wide / 2 - 3, y0, 7, len);
+      ctx.fillStyle = 'rgba(255,220,200,0.25)'; ctx.fillRect(x - wide / 2 - 3, y0, 2, len); ctx.fillRect(x + wide / 2 - 2, y0, 2, len);
+      ctx.fillStyle = '#6e2a22';
+      for (yy = y0; yy <= y1; yy += len / 4) { ctx.fillRect(x - wide / 2 - 6, yy - 5, 11, 10); ctx.fillRect(x + wide / 2 - 5, yy - 5, 11, 10); }
+    }
+    /* The waterfall: a tumble of rocks on the top bank, white water spilling into the bay. */
+    function drawFalls() {
+      var x = game.fallsAt[0], y = game.fallsAt[1], t = game.time, k, rng = Wt.mulberry32(17);
+      for (k = 0; k < 9; k++) {
+        var rx = x + (k - 4) * 22 + (rng() - 0.5) * 10, ry = y - 24 - Math.abs(k - 4) * 4 + (rng() - 0.5) * 8, r = 16 + rng() * 14;
+        if (Math.abs(k - 4) < 1) continue;               // the gap the water comes through
+        ctx.fillStyle = 'rgba(2,6,10,0.3)'; oval(rx + 5, ry + 8, r * 1.1, r * 0.85);
+        ctx.fillStyle = k % 2 ? '#6d7571' : '#59615e'; oval(rx, ry, r * 1.1, r * 0.85);
+        ctx.fillStyle = 'rgba(210,216,204,0.16)'; oval(rx - 4, ry - 4, r * 0.55, r * 0.4);
+      }
+      // the water: streaks running down, and foam where it lands
+      ctx.fillStyle = 'rgba(150,190,200,0.55)'; ctx.fillRect(x - 15, y - 44, 30, 54);
+      ctx.strokeStyle = 'rgba(240,248,250,0.75)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (k = 0; k < 6; k++) {
+        var sx = x - 12 + k * 5, ph = (t * 1.6 + k * 0.37) % 1;
+        ctx.moveTo(sx, y - 42 + ph * 30); ctx.lineTo(sx, y - 30 + ph * 30);
+      }
+      ctx.stroke();
+      for (k = 0; k < 7; k++) {
+        var fa = k * 0.9 + t * 0.7, fr = 6 + ((t * 9 + k * 5) % 10);
+        ctx.fillStyle = 'rgba(240,248,250,' + (0.5 - fr / 40).toFixed(3) + ')';
+        oval(x + Math.cos(fa) * 16, y + 14 + Math.sin(fa) * 6, fr, fr * 0.6);
+      }
+    }
+    /* The tea house: a gravel yard, a tiled roof seen from above, red lanterns at the front. */
+    function drawTea() {
+      var sh = S.SHAPES.tea, x = sh.cx, y = sh.cy - 8, lv = game.lots.tea.level, k;
+      ctx.fillStyle = 'rgba(12,16,13,0.38)'; oval(x, y + 14, sh.rx + 6, sh.ry + 4);
+      ctx.fillStyle = gravelPat; oval(x, y + 12, sh.rx, sh.ry);
+      if (lv >= 2) { ctx.fillStyle = 'rgba(2,6,10,0.3)'; oval(x - 96, y + 72, 26, 24); ctx.fillStyle = '#a0483a'; oval(x - 100, y + 66, 24, 24); ctx.fillStyle = '#c0644e'; oval(x - 104, y + 62, 10, 10); }
+      if (lv >= 3) { ctx.fillStyle = 'rgba(2,6,10,0.3)'; oval(x + 104, y + 70, 26, 24); ctx.fillStyle = '#d8cdb6'; oval(x + 100, y + 64, 24, 24); ctx.fillStyle = '#efe6d4'; oval(x + 96, y + 60, 10, 10); }
+      ctx.fillStyle = 'rgba(2,6,10,0.35)'; ctx.fillRect(x - 76 + 8, y - 54 + 12, 152, 108);
+      ctx.fillStyle = '#7a5a40'; ctx.fillRect(x - 70, y - 46, 140, 96);          // the veranda
+      ctx.fillStyle = '#3d4446';                                                // the roof, with its eaves turned up
+      ctx.beginPath(); ctx.moveTo(x - 84, y - 62); ctx.quadraticCurveTo(x, y - 52, x + 84, y - 62); ctx.lineTo(x + 76, y + 46);
+      ctx.quadraticCurveTo(x, y + 38, x - 76, y + 46); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 1.5; ctx.beginPath();
+      for (k = -50; k <= 40; k += 10) { ctx.moveTo(x - 74, y + k); ctx.lineTo(x + 74, y + k); }
+      ctx.moveTo(x - 82, y - 60); ctx.lineTo(x - 36, y - 6); ctx.moveTo(x + 82, y - 60); ctx.lineTo(x + 36, y - 6);
+      ctx.moveTo(x - 74, y + 44); ctx.lineTo(x - 36, y - 6); ctx.moveTo(x + 74, y + 44); ctx.lineTo(x + 36, y - 6);
+      ctx.stroke();
+      ctx.fillStyle = '#2a3032'; ctx.fillRect(x - 38, y - 10, 76, 9);          // the ridge
+      ctx.fillStyle = '#3b5878'; ctx.fillRect(x - 20, y + 42, 40, 10);         // a curtain over the door
+      for (k = -1; k <= 1; k += 2) {
+        ctx.fillStyle = '#a0483a'; oval(x + k * 64, y + 54, 7, 9);
+        ctx.fillStyle = '#e8b070'; oval(x + k * 64, y + 54, 3, 4);
+        lanterns.push([x + k * 64, y + 54]);
+      }
+    }
+    function drawWorks() {
+      if (game.works.falls) drawFalls();
+      if (game.works.bridge) drawMoonBridge();
+      drawIsland();
+      if (game.lots.tea) drawTea();
     }
 
     /* ---------- the market and the planted plots: painted once each, then kept ---------- */
@@ -1404,7 +1474,7 @@
           ctx.strokeStyle = 'rgba(60,50,40,0.5)'; ctx.lineWidth = 1.5; ctx.beginPath();
           for (k = 0; k < 3; k++) { ctx.moveTo(x - 20, y + 2 + k * 4); ctx.lineTo(x - 5, y + 2 + k * 4); ctx.moveTo(x + 5, y + 1 + k * 4); ctx.lineTo(x + 20, y + 1 + k * 4); }
           ctx.stroke();
-        } else if (st.id === 'map') {                    // a signpost: three boards pointing different ways
+        } else if (st.id === 'plans') {                  // a signpost: three boards pointing different ways
           ctx.fillStyle = 'rgba(2,6,10,0.32)'; ctx.beginPath(); ctx.ellipse(x + 7, y + 10, 34, 26, 0, 0, 6.2832); ctx.fill();
           var cols = ['#7d4a3c', '#6b5038', '#8a6a4a'], angs = [-0.5, 2.3, 0.9];
           for (k = 0; k < 3; k++) {
@@ -1459,7 +1529,7 @@
           ctx.fillStyle = won ? '#dcbc5e' : '#8a6a4a'; ctx.beginPath(); ctx.arc(x + 22, y - 22, 8, 0, 6.2832); ctx.fill();
           ctx.fillStyle = won ? '#a8873a' : '#5b4632'; ctx.beginPath(); ctx.arc(x + 22, y - 22, 3.5, 0, 6.2832); ctx.fill();
         }
-        plate(x, y + (st.id === 'gate' ? 44 : st.lot === 'market' && st.id !== 'requests' && st.id !== 'shows' ? 52 : 46), st.name);
+        plate(x, y + (st.id === 'gate' ? 44 : st.y > 800 ? 52 : 46), st.name);
         if (ui && ui.marks && ui.marks[st.id]) ripeMark(x + st.w - 22, y - st.h + 14);
       }
     }
@@ -1523,6 +1593,140 @@
       }
     }
 
+    /* ---------- happenings ---------- */
+    function fadeOf(h, edge) { return clamp(Math.min(h.t / edge, (h.dur - h.t) / edge), 0, 1); }
+    // things on the water: drifting petals, the turtle, the ducks. Drawn inside the water.
+    function drawDrifts() {
+      var ds = game.drifts, i;
+      for (i = 0; i < ds.length; i++) {
+        var d = ds[i], al = clamp(Math.min(d.age * 2, (d.life - d.age) / 3), 0, 1);
+        if (al <= 0) continue;
+        var h = game.grid.sample(game.gx(d.x), game.gy(d.y));
+        ctx.save(); ctx.globalAlpha = al; ctx.translate(d.x + h * 5, d.y + h * 5); ctx.rotate(d.rot); ctx.scale(d.r, d.r);
+        if (d.kind === 'maple') {
+          ctx.fillStyle = ['#a8503a', '#c06a3a', '#c98a3a'][(d.rot * 10 | 0) % 3 < 0 ? 0 : (d.rot * 10 | 0) % 3];
+          ctx.beginPath(); ctx.ellipse(0, 0, 8, 3.4, 0, 0, 6.2832); ctx.ellipse(0, 0, 3.4, 7, 0.5, 0, 6.2832); ctx.fill();
+        } else if (d.kind === 'snow') {
+          ctx.fillStyle = 'rgba(245,248,252,0.85)'; ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, 6.2832); ctx.fill();
+        } else {
+          ctx.fillStyle = d.kind === 'lotus' ? '#f0d6da' : '#e8c0c8';
+          ctx.beginPath(); ctx.ellipse(0, 0, d.kind === 'lotus' ? 8 : 5.5, 3.2, 0, 0, 6.2832); ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.ellipse(-1.5, -0.8, 2.5, 1.2, 0, 0, 6.2832); ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+    function drawTurtle(h) {
+      var al = clamp(h.t / 1.5, 0, 1), sw = Math.sin(h.t * 2) * 0.25;
+      ctx.save(); ctx.globalAlpha = al; ctx.translate(h.x, h.y); ctx.rotate(h.a);
+      ctx.fillStyle = '#5d6e48';
+      oval(14, -12 + sw * 4, 7, 4); oval(14, 12 - sw * 4, 7, 4); oval(-13, -11, 6, 3.5); oval(-13, 11, 6, 3.5);   // flippers
+      ctx.fillStyle = '#6a7a50'; oval(26, 0, 7, 5.5);                                                          // head
+      ctx.fillStyle = '#4b5638'; oval(0, 0, 22, 17);                                                           // shell
+      ctx.strokeStyle = 'rgba(160,170,120,0.45)'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(14, 0); ctx.moveTo(-6, -14); ctx.lineTo(-6, 14); ctx.moveTo(6, -14); ctx.lineTo(6, 14); ctx.stroke();
+      ctx.fillStyle = 'rgba(220,230,200,0.18)'; oval(-4, -5, 12, 7);
+      ctx.restore();
+    }
+    function drawDucks(h) {
+      for (var j = h.n - 1; j >= 0; j--) {
+        var p = game.duckAt(h, j), drake = j === 0;
+        ctx.save(); ctx.translate(p[0], p[1]); ctx.rotate(h.a);
+        ctx.strokeStyle = 'rgba(230,240,240,0.22)'; ctx.lineWidth = 1.5;                     // the wake
+        ctx.beginPath(); ctx.moveTo(-10, -6); ctx.lineTo(-34, -16); ctx.moveTo(-10, 6); ctx.lineTo(-34, 16); ctx.stroke();
+        ctx.fillStyle = 'rgba(2,6,10,0.25)'; oval(2, 4, 15, 9);
+        ctx.fillStyle = drake ? '#8a8478' : '#8a6e52'; oval(0, 0, 15, 9);                     // body
+        ctx.fillStyle = drake ? '#6a645a' : '#6e563e'; oval(-3, 0, 9, 6.5);                    // folded wings
+        ctx.fillStyle = drake ? '#2f5a3a' : '#7a5e44'; oval(11, 0, 6, 5.5);                    // head
+        if (drake) { ctx.fillStyle = '#e9e4d8'; ctx.fillRect(7, -5, 1.6, 10); }
+        ctx.fillStyle = '#d8a040'; oval(18, 0, 3.6, 2.2);                                      // bill
+        ctx.restore();
+      }
+    }
+    // things above: the heron, the kingfisher
+    function bird(x, y, a, span, body, wingCol, bodyCol, flap, lift) {
+      ctx.save(); ctx.translate(x + lift * 0.6, y + lift); ctx.rotate(a);
+      ctx.fillStyle = 'rgba(2,6,10,0.22)'; oval(0, 0, body, body * 0.3);
+      if (span) { ctx.beginPath(); ctx.ellipse(0, 0, body * 0.35, span * Math.abs(flap), 0, 0, 6.2832); ctx.fill(); }
+      ctx.restore();
+      ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+      if (span) { ctx.fillStyle = wingCol; ctx.beginPath(); ctx.ellipse(-body * 0.05, 0, body * 0.38, span * Math.abs(flap), 0, 0, 6.2832); ctx.fill(); }
+      ctx.fillStyle = bodyCol; oval(0, 0, body, body * 0.3);
+      ctx.restore();
+    }
+    function drawHeron(h) {
+      var flying = h.state !== 'stand';
+      if (flying) {
+        var flap = Math.sin(h.t * 7), x = h.x, y = h.y;
+        bird(x, y, h.a, 46, 30, '#8a9498', '#b8c0c2', 0.35 + 0.65 * Math.abs(flap), 34);
+        ctx.save(); ctx.translate(x, y); ctx.rotate(h.a); ctx.fillStyle = '#e9e4d8'; oval(30, 0, 7, 5); ctx.fillStyle = '#d8b040'; ctx.fillRect(35, -1.2, 14, 2.4); ctx.restore();
+        return;
+      }
+      var reach = h.strike > 0 ? Math.sin(h.strike * Math.PI) * 22 : 0;
+      ctx.save(); ctx.translate(h.x, h.y);
+      ctx.fillStyle = 'rgba(2,6,10,0.28)'; oval(12, 14, 26, 14);
+      ctx.rotate(h.a);
+      ctx.fillStyle = '#7e888c'; oval(-4, 0, 22, 12);                         // body
+      ctx.fillStyle = '#a4adb0'; oval(-2, -2, 15, 8);
+      ctx.strokeStyle = '#c8ced0'; ctx.lineWidth = 5; ctx.lineCap = 'round';  // neck
+      ctx.beginPath(); ctx.moveTo(10, 0); ctx.quadraticCurveTo(20 + reach * 0.5, -8, 28 + reach, 0); ctx.stroke();
+      ctx.fillStyle = '#e9e4d8'; oval(30 + reach, 0, 6, 5);                    // head, with its dark crest
+      ctx.fillStyle = '#2a2623'; ctx.fillRect(24 + reach, -1, 8, 2);
+      ctx.fillStyle = '#d8b040'; ctx.beginPath(); ctx.moveTo(35 + reach, -2); ctx.lineTo(52 + reach, 0); ctx.lineTo(35 + reach, 2); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+    function drawKingfisher(h) {
+      var flap = Math.sin(h.t * 22);
+      bird(h.x, h.y, h.a, 14, 11, '#2f7fa8', '#3b95c0', 0.4 + 0.6 * Math.abs(flap), 22);
+      ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.a); ctx.fillStyle = '#d0703a'; oval(1, 0, 6, 2.4); ctx.fillStyle = '#2a2623'; ctx.fillRect(10, -0.8, 7, 1.6); ctx.restore();
+    }
+    function drawHappenWater() {
+      drawDrifts();
+      var hs = game.happ.list, i;
+      for (i = 0; i < hs.length; i++) {
+        var h = hs[i];
+        if (h.kind === 'turtle') drawTurtle(h);
+        else if (h.kind === 'ducks') drawDucks(h);
+        else if (h.kind === 'lanterns') moodFloat([{ th: 'lantern', m: MOOD.lantern, a: fadeOf(h, 8) }]);
+      }
+    }
+    function drawHappenAir() {
+      var hs = game.happ.list, i, k;
+      for (i = 0; i < hs.length; i++) {
+        var h = hs[i];
+        if (h.kind === 'heron') drawHeron(h);
+        else if (h.kind === 'kingfisher') drawKingfisher(h);
+        else if (h.kind === 'fireflies') {
+          var al = fadeOf(h, 6), rng = Wt.mulberry32(h.seed);
+          for (k = 0; k < 46; k++) {
+            var bx = 80 + rng() * (AW - 160), by = 80 + rng() * (AH - 200), ph = rng() * 6.283, sp = 0.3 + rng() * 0.5;
+            var x = bx + Math.sin(game.time * sp + ph) * 40, y = by + Math.cos(game.time * sp * 0.8 + ph * 1.3) * 26;
+            var blink = Math.max(0, Math.sin(game.time * (1.2 + sp) + ph * 3)), g = al * blink;
+            if (g < 0.03) continue;
+            var gr = ctx.createRadialGradient(x, y, 0, x, y, 16);
+            gr.addColorStop(0, 'rgba(220,255,150,' + (0.55 * g).toFixed(3) + ')'); gr.addColorStop(1, 'rgba(220,255,150,0)');
+            ctx.fillStyle = gr; ctx.fillRect(x - 16, y - 16, 32, 32);
+            ctx.fillStyle = 'rgba(250,255,210,' + g.toFixed(3) + ')'; ctx.beginPath(); ctx.arc(x, y, 1.8, 0, 6.2832); ctx.fill();
+          }
+        } else if (h.kind === 'mist') {
+          var ma = fadeOf(h, 12) * 0.22, mr = Wt.mulberry32(h.seed);
+          for (k = 0; k < 9; k++) {
+            var mx = (mr() * AW + game.time * (8 + mr() * 10)) % (AW + 600) - 300, my = 150 + mr() * 600, rad = 220 + mr() * 200;
+            var mg = ctx.createRadialGradient(mx, my, 0, mx, my, rad);
+            mg.addColorStop(0, 'rgba(225,232,236,' + ma.toFixed(3) + ')'); mg.addColorStop(1, 'rgba(225,232,236,0)');
+            ctx.fillStyle = mg; ctx.fillRect(mx - rad, my - rad, rad * 2, rad * 2);
+          }
+        } else if (h.kind === 'rainbow') {
+          var ra = fadeOf(h, 8) * 0.16, cols = ['255,90,90', '255,170,80', '255,235,110', '120,220,120', '100,170,255', '170,120,230'];
+          ctx.lineWidth = 16;
+          for (k = 0; k < cols.length; k++) {
+            ctx.strokeStyle = 'rgba(' + cols[k] + ',' + ra.toFixed(3) + ')';
+            ctx.beginPath(); ctx.arc(AW * 0.62, AH * 1.15, 900 - k * 15, Math.PI * 1.08, Math.PI * 1.62); ctx.stroke();
+          }
+        }
+      }
+    }
+
     /* A thing being carried to its place. */
     function drawGhost(gh) {
       ctx.save();
@@ -1559,7 +1763,7 @@
       ctx.save(); ctx.clip(waterPath, 'evenodd');
       var ponds = game.waterAreas();
       // one floor for each whole pond, however many of its sections are open, so no join shows in the water
-      for (i = 0; i < S.BIOMES.length; i++) if (game.sections(S.BIOMES[i].id)) ctx.drawImage(floor, S.BIOMES[i].c0 * AW, S.BIOMES[i].r0 * AH, 2 * AW, 2 * AH);
+      ctx.drawImage(floor, 0, 0, AW, AH);
       moodWash(moods, true);
       drawSunk();
       // small fish first so the big ones pass over them
@@ -1578,6 +1782,7 @@
       for (i = 0; i < plants.length; i++) if (plants[i].type === 'duckweed') drawDuckweed(plants[i]);
       for (i = 0; i < game.pads.length; i++) drawPad(game.pads[i]);
       moodFloat(moods);
+      drawHappenWater();
       drawFrog();
       // the bank throws a soft shadow onto the water
       ctx.lineCap = 'round';
@@ -1585,10 +1790,8 @@
       ctx.strokeStyle = 'rgba(2,6,10,0.30)'; ctx.lineWidth = 18; ctx.stroke(bankPath);
       ctx.restore();
       drawSand();
-      drawFeatures();
       drawStones();
-      drawHeadlands();
-      drawSigns();
+      drawWorks();
       drawStations(ui);
       drawTills();
       drawTreeShadows();
@@ -1604,6 +1807,7 @@
       drawSnowfall();
       drawWall();
       drawFly();
+      drawHappenAir();
       drawOffer();
       if (ui && ui.ghost) drawGhost(ui.ghost);
 
@@ -1640,6 +1844,15 @@
             ctx.strokeStyle = 'rgba(232,205,130,' + (0.65 + 0.3 * pulse).toFixed(3) + ')'; ctx.lineWidth = 2.5;
             ctx.beginPath(); ctx.arc(m.x, m.y, mr, 0, 6.2832); ctx.stroke();
           }
+        }
+        for (i = 0; i < fish.length; i++) {
+          // a wild koi: a pale shimmer that says it is new here and can be tapped
+          var wk = fish[i];
+          if (!wk.wild) continue;
+          var wr = Math.max(26, wk.len * 0.62) + Math.sin(game.time * 4) * 3;
+          ctx.strokeStyle = 'rgba(180,240,220,' + (0.55 + 0.35 * Math.sin(game.time * 3)).toFixed(3) + ')'; ctx.lineWidth = 2;
+          ctx.setLineDash([6, 7]); ctx.lineDashOffset = -game.time * 20;
+          ctx.beginPath(); ctx.arc(wk.x, wk.y, wr, 0, 6.2832); ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0;
         }
         ring(ui.pick, 'rgba(201,168,92,0.75)', true);
         ring(ui.selected, 'rgba(233,228,216,0.6)', false);

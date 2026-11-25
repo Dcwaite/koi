@@ -20,7 +20,6 @@
     pairTime: 30 * MIN,
     incomePerSec: 0.0005 / 60, // pocket money: 0.05% of a koi's value per real minute
     offlineIncomeCap: 8 * 3600,
-    capacity: 14,
     maxPads: 7,
     padCost: 40,
     padShade: 0.05,           // each pad keeps koi fed this much longer
@@ -36,46 +35,22 @@
     reedGrowth: 0.06, irisBond: 0.10,
     requestRefill: 5 * MIN,
     biteGrowth: 6 * MIN,      // a mouthful is worth this much growing, on top of time passing
-    duskMinute: 92
+    duskMinute: 92,
+    seasonLen: 8 * 60,       // real seconds in a season, so a year at the lake is a little over half an hour
+    seasonFade: 40           // real seconds the change from one season to the next takes
   };
-  /* The garden is six plots across and five down.
-     Six ponds, each its own kind of place, each two plots by two: you open a pond one section at a time and
-     the sections run together into one big pond. The ponds are not joined to each other. Each takes only
-     certain koi. Along the bottom runs the street: the Market, and room for a tea house or a garden of sand.
-     Each plot has one shaped thing in the middle of it. A shape is an ellipse with a few slow waves in its
-     edge: lobes are [how many, how deep, where]. */
-  var AW = 1600, AH = 1000, COLS = 6, ROWS = 5;
-  /* c0, r0: the top left plot of the pond's four. first: the section that opens first. bases: the body colours
-     that may live there (none listed means any). price: what its first section costs. */
-  var BIOMES = [
-    { id: 'home', name: 'Home pond', c0: 2, r0: 2, first: [2, 3], bases: null, price: 300 },
-    { id: 'spring', name: 'Spring pond', c0: 0, r0: 2, first: [1, 3], bases: ['orange', 'white'], price: 400 },
-    { id: 'lotus', name: 'Lotus pond', c0: 4, r0: 2, first: [4, 3], bases: ['white', 'gold'], price: 800 },
-    { id: 'maple', name: 'Maple pond', c0: 2, r0: 0, first: [2, 1], bases: ['orange', 'gold'], price: 1200 },
-    { id: 'snow', name: 'Snow pond', c0: 0, r0: 0, first: [1, 1], bases: ['white', 'slate'], price: 2000 },
-    { id: 'lantern', name: 'Lantern pond', c0: 4, r0: 0, first: [4, 1], bases: ['charcoal', 'slate'], price: 3500 }
-  ];
-  function biomeById(id) { for (var i = 0; i < BIOMES.length; i++) if (BIOMES[i].id === id) return BIOMES[i]; return null; }
-  var AREAS = [], SHAPES = {};
-  (function () {
-    var rng = mulberry32(4242), c, r, i;
-    for (r = 0; r < ROWS; r++) for (c = 0; c < COLS; c++) {
-      var home = c === 2 && r === 3, market = c === 2 && r === 4, bio = null;
-      for (i = 0; i < BIOMES.length; i++) if (c >= BIOMES[i].c0 && c < BIOMES[i].c0 + 2 && r >= BIOMES[i].r0 && r < BIOMES[i].r0 + 2) bio = BIOMES[i];
-      var a = { id: home ? 'home' : market ? 'market' : 'p' + c + r, col: c, row: r, biome: bio ? bio.id : null,
-                first: !!bio && bio.first[0] === c && bio.first[1] === r, ring: 1 };
-      if (home) { a.rx = 650; a.ry = 378; a.lobes = [[2, 0.07, 0.6], [3, 0.06, 2.1], [5, 0.03, 1.0]]; }
-      else if (market) { a.rx = 560; a.ry = 350; a.lobes = [[2, 0.05, 0.2], [4, 0.04, 1.1]]; }
-      else {
-        a.rx = 540 + rng() * 70; a.ry = 345 + rng() * 45;
-        a.lobes = [[2, 0.05 + rng() * 0.07, rng() * 6.283], [3, 0.04 + rng() * 0.06, rng() * 6.283], [4 + ((rng() * 2) | 0), 0.02 + rng() * 0.03, rng() * 6.283]];
-      }
-      AREAS.push(a);
-      SHAPES[a.id] = { cx: (c + 0.5) * AW, cy: (r + 0.5) * AH, rx: a.rx, ry: a.ry, lobes: a.lobes };
-    }
-  })();
-  function areaById(id) { for (var i = 0; i < AREAS.length; i++) if (AREAS[i].id === id) return AREAS[i]; return null; }
-  function areaAt(col, row) { for (var i = 0; i < AREAS.length; i++) if (AREAS[i].col === col && AREAS[i].row === row) return AREAS[i]; return null; }
+  /* The garden is one screen: a lake in the middle, and everything else on its banks. Nothing scrolls.
+     The world is AW x AH. There is one area, the lake, and the tea house has a small yard of its own. */
+  var AW = 1600, AH = 1000, COLS = 1, ROWS = 1;
+  var BIOMES = [{ id: 'home', name: 'the lake', c0: 0, r0: 0, first: [0, 0], bases: null, price: 0 }];
+  function biomeById(id) { return id === 'home' ? BIOMES[0] : null; }
+  var AREAS = [{ id: 'home', col: 0, row: 0, biome: 'home', first: true, ring: 0 }];
+  var SHAPES = {
+    home: { cx: AW / 2, cy: 450, rx: 560, ry: 300, lobes: [[2, 0.05, 0.6], [3, 0.04, 2.1]] },
+    tea: { cx: 1430, cy: 150, rx: 125, ry: 92, lobes: [[3, 0.04, 0.5]] }
+  };
+  function areaById(id) { return id === 'home' ? AREAS[0] : null; }
+  function areaAt(col, row) { return col === 0 && row === 0 ? AREAS[0] : null; }
 
   /* What can stand on a plot. cost: to build (outer plots cost more). renown: what it adds to the garden's name.
      pay / stop / cap: what a guest leaves in the till, how likely a passing guest is to stop, and how much the till holds. */
@@ -94,16 +69,15 @@
   /* Stations: the things in the garden you tap to do the business of running it. Each stands on a plot,
      at dx, dy from its middle, where it can be seen when that plot fills the screen. */
   var STATIONS = [
-    { id: 'koi', name: 'Koi book', lot: 'home', dx: -560, dy: 332, w: 60, h: 52 },
-    { id: 'map', name: 'Map', lot: 'home', dx: 560, dy: 332, w: 60, h: 52 },
-    { id: 'gate', name: 'Ticket gate', lot: 'market', dx: -300, dy: 212, w: 96, h: 50 },
-    { id: 'requests', name: 'Requests', lot: 'market', dx: -345, dy: -52, w: 62, h: 50 },
-    { id: 'shows', name: 'Koi shows', lot: 'market', dx: 345, dy: -52, w: 62, h: 50 },
-    { id: 'sell', name: 'Sell', lot: 'market', dx: -190, dy: 69, w: 78, h: 48 },
-    { id: 'dealer', name: 'Koi dealer', lot: 'market', dx: 0, dy: 69, w: 78, h: 48 },
-    { id: 'garden', name: 'Garden shop', lot: 'market', dx: 190, dy: 69, w: 78, h: 48 }
+    { id: 'requests', name: 'Requests', x: 140, y: 300, w: 62, h: 50 },
+    { id: 'koi', name: 'Koi book', x: 140, y: 600, w: 60, h: 52 },
+    { id: 'shows', name: 'Koi shows', x: 1460, y: 330, w: 62, h: 50 },
+    { id: 'plans', name: 'Lake works', x: 1460, y: 610, w: 60, h: 52 },
+    { id: 'sell', name: 'Sell', x: 300, y: 880, w: 78, h: 48 },
+    { id: 'dealer', name: 'Koi dealer', x: 530, y: 880, w: 78, h: 48 },
+    { id: 'gate', name: 'Ticket gate', x: 1310, y: 884, w: 96, h: 50 },
+    { id: 'garden', name: 'Garden shop', x: 1070, y: 880, w: 78, h: 48 }
   ];
-  STATIONS.forEach(function (st) { st.x = SHAPES[st.lot].cx + st.dx; st.y = SHAPES[st.lot].cy + st.dy; });
   /* The ticket gate: every guest pays to come in, and the takings wait there until you fetch them.
      It only holds so much; a bigger cash box is an upgrade. */
   var GATE = { caps: [120, 300, 700, 1500, 3000], costs: [250, 700, 1800, 4500] };
@@ -114,15 +88,15 @@
     { text: 'Feed your koi', reward: 30, done: function (g) { return g.stats.fed >= 3; } },
     { text: 'Collect the takings at the ticket gate', reward: 40, done: function (g) { return g.stats.gate >= 1; } },
     { text: 'Pair two koi', reward: 60, done: function (g) { return g.stats.pairs >= 1; } },
-    { text: 'Open another section of the Home pond', reward: 150, done: function (g) { return g.sections('home') >= 2; } },
+    { text: 'Make the lake bigger', reward: 150, done: function (g) { return g.lots.home.level >= 2; } },
     { text: 'Fill a request', reward: 200, done: function (g) { return g.stats.requests >= 1; } },
+    { text: 'Welcome a wild koi', reward: 200, done: function (g) { return g.stats.wild >= 1; } },
     { text: 'Keep 10 koi', reward: 300, done: function (g) { return g.koi.length >= 10; } },
-    { text: 'Build a tea house', reward: 300, done: function (g) { return g.built('tea') >= 1; } },
+    { text: 'Build the tea house', reward: 300, done: function (g) { return !!g.lots.tea; } },
     { text: 'Find 12 kinds of koi', reward: 500, done: function (g) { return g.bookCount() >= 12; } },
-    { text: 'Open a second pond', reward: 300, done: function (g) { return g.pondsOpen() >= 2; } },
-    { text: 'Open a third pond', reward: 600, done: function (g) { return g.pondsOpen() >= 3; } },
+    { text: 'Build the moon bridge', reward: 600, done: function (g) { return !!g.works.bridge; } },
     { text: 'Find 25 kinds of koi', reward: 1000, done: function (g) { return g.bookCount() >= 25; } },
-    { text: 'Open all six ponds', reward: 2000, done: function (g) { return g.pondsOpen() >= 6; } },
+    { text: 'Dig the lake to its biggest', reward: 2000, done: function (g) { return g.lots.home.level >= 4; } },
     { text: 'Find 40 kinds of koi', reward: 3000, done: function (g) { return g.bookCount() >= 40; } }
   ];
   /* Every pond but the first has a mood of its own, so opening one is opening a new place. */
@@ -132,6 +106,22 @@
     var a = areaById(id);
     return a && a.biome ? a.biome : 'home';
   }
+  /* The year turns while you sit by the lake: each season changes the light, what floats on the water,
+     and what comes to visit. A season lasts T.seasonLen real seconds. */
+  var SEASONS = [{ id: 'spring', name: 'Spring' }, { id: 'lotus', name: 'Summer' }, { id: 'maple', name: 'Autumn' }, { id: 'snow', name: 'Winter' }];
+  var SEASON_TEXT = {
+    spring: 'Spring has come. Blossom drifts over the water.',
+    lotus: 'Summer is here. Lotus flowers open on the lake.',
+    maple: 'Autumn. The maples drop their leaves on the water.',
+    snow: 'Winter. Thin ice rims the lake, and snow is falling.'
+  };
+  /* Lake works: things to build around the one lake. The lake itself is dug bigger in steps. */
+  var LAKE_CAP = [12, 18, 26, 36], LAKE_COST = [600, 1800, 5000];
+  var WORKS = {
+    tea: { name: 'Tea house', cost: 900, renown: 60, note: 'On the far bank. Guests stop for tea and leave coins in its till.' },
+    falls: { name: 'Waterfall', cost: 700, renown: 50, note: 'Fresh water spills in at the top of the lake. Koi stay fed 8% longer, and wild koi find their way in twice as often.' },
+    bridge: { name: 'Moon bridge', cost: 1200, renown: 80, note: 'A bridge out to the island. Guests cross it to feed the koi.' }
+  };
   function blobR(sh, th) {
     var r = 1, i;
     for (i = 0; i < sh.lobes.length; i++) r += sh.lobes[i][1] * Math.cos(sh.lobes[i][0] * th + sh.lobes[i][2]);
@@ -159,36 +149,29 @@
   }
   var FC = 10;   // the bank is worked out on a grid this fine, in world pixels
 
-  /* A pond is one lake, however many of its four sections are open.
-     Each open section's water is a soft-cornered rectangle. A side that faces the outside of the pond's block,
-     or a section still closed, is pulled in to leave a bank. A side that faces another open section is pushed
-     well past it instead, so the water simply carries on: there is no neck and no join.
-     At the middle of the block, where the four sections meet, a headland pushes into the water. With one
-     section open it is a cape in the corner; with all four it stands alone as an island.
+  /* The lake: a soft-cornered box with a bay at the top left and an island toward the top right, its edge
+     wandering so it never looks drawn with a ruler. level 1 to 4: each dig pulls the banks back.
      Returns how far a point is from the shore, roughly: below zero is water. */
-  var LAKE = { inX: 280, inY: 212, over: 420, round: 300, blend: 180, islX: 380, islY: 260 };
+  var LAKE = { lv: [[320, 180, 730], [292, 160, 748], [262, 140, 764], [235, 122, 780]], round: 230 };
+  var ISLE = { x: 1010, y: 372, rx: 104, ry: 70 };
+  var FALLS_X = 450;
   function smin(a, b, k) { var h = clamp(0.5 + 0.5 * (b - a) / k, 0, 1); return b + (a - b) * h - k * h * (1 - h); }
-  function lakeD(x, y, bx, by, open, seed) {
-    var d = 1e9, i, j, L = LAKE;
-    for (j = 0; j < 2; j++) for (i = 0; i < 2; i++) {
-      if (!open[j][i]) continue;
-      var x0 = bx + i * AW, x1 = x0 + AW, y0 = by + j * AH, y1 = y0 + AH;
-      x0 += i === 1 && open[j][0] ? -L.over : L.inX;
-      x1 += i === 0 && open[j][1] ? L.over : -L.inX;
-      y0 += j === 1 && open[0][i] ? -L.over : L.inY;
-      y1 += j === 0 && open[1][i] ? L.over : -L.inY;
-      var qx = Math.abs(x - (x0 + x1) / 2) - ((x1 - x0) / 2 - L.round), qy = Math.abs(y - (y0 + y1) / 2) - ((y1 - y0) / 2 - L.round);
-      d = smin(d, Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - L.round, L.blend);
-    }
-    var isl = (Math.hypot((x - bx - AW) / L.islX, (y - by - AH) / L.islY) - 1) * L.islY;
-    d = -smin(-d, isl, 120);
-    // the shore wanders, in a way that pays no heed to where one section ends and the next begins
-    return d + 30 * Math.sin(x / 310 + seed) + 22 * Math.sin(y / 230 + seed * 1.7) + 10 * Math.sin((x + y) / 97 + seed * 2.3) + 16 * Math.sin((x - y) / 410 + seed * 0.9);
+  function lakeD(x, y, level, seed) {
+    var L = LAKE.lv[clamp(level | 0, 1, 4) - 1], x0 = L[0], x1 = AW - L[0], y0 = L[1], y1 = L[2], r = LAKE.round;
+    var qx = Math.abs(x - (x0 + x1) / 2) - ((x1 - x0) / 2 - r), qy = Math.abs(y - (y0 + y1) / 2) - ((y1 - y0) / 2 - r);
+    var d = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+    var bay = (Math.hypot((x - FALLS_X) / 175, (y - y0 - 6) / 62) - 1) * 62;
+    d = smin(d, bay, 70);
+    var isl = (Math.hypot((x - ISLE.x) / ISLE.rx, (y - ISLE.y) / ISLE.ry) - 1) * ISLE.ry;
+    d = -smin(-d, isl, 50);
+    // two coves where the land pushes in, so no side of the lake runs straight
+    var cove1 = (Math.hypot((x - 650) / 175, (y - y1 - 44) / 104) - 1) * 104, cove2 = (Math.hypot((x - x1 - 36) / 104, (y - 560) / 128) - 1) * 104;
+    d = -smin(-d, cove1, 60); d = -smin(-d, cove2, 60);
+    return d + 20 * Math.sin(x / 310 + seed) + 15 * Math.sin(y / 230 + seed * 1.7) + 7 * Math.sin((x + y) / 97 + seed * 2.3) + 11 * Math.sin((x - y) / 410 + seed * 0.9);
   }
   // a wall runs round the whole garden, with a gate in the middle of each side where visitors come and go
   var WALL = 46;
-  var GATES = [{ x: COLS * AW / 2, y: ROWS * AH - WALL, a: -Math.PI / 2 }, { x: COLS * AW / 2, y: WALL, a: Math.PI / 2 },
-               { x: WALL, y: ROWS * AH / 2, a: 0 }, { x: COLS * AW - WALL, y: ROWS * AH / 2, a: Math.PI }];
+  var GATES = [{ x: 1310, y: AH - WALL, a: -Math.PI / 2 }];
   // gravel paths join every plot to the ones beside it
   var PATHS = [];
   AREAS.forEach(function (a) {
@@ -346,9 +329,13 @@
     this.plants = [];
     this.hand = { x: 0, y: 0, on: false, offer: false };   // where the player's hand is over the water
     this.tossed = []; this.visitors = []; this.floaters = []; this.sparks = [];
-    this.unlocked = { home: true, market: true };          // which plots are built on (kept in step with lots)
-    this.lots = { home: { kind: 'pond', level: 1, till: 0 }, market: { kind: 'market', level: 1, till: 0 } };
-    this.stats = { fed: 0, picked: 0, pairs: 0, tills: 0, requests: 0, upgrades: 0, guests: 0, gate: 0, lost: 0 };
+    this.unlocked = { home: true };
+    this.lots = { home: { kind: 'pond', level: 1, till: 0 } };   // the lake, and the tea house once built
+    this.stats = { fed: 0, picked: 0, pairs: 0, tills: 0, requests: 0, upgrades: 0, guests: 0, gate: 0, lost: 0, wild: 0, herons: 0 };
+    this.works = { falls: false, bridge: false };          // lake works built (the tea house is a lot, for its till)
+    this.seasonClock = 0;                                  // real seconds the year has run
+    this.happ = { next: 14, list: [], wildAt: 0 };         // what is going on at the lake just now
+    this.drifts = [];                                      // petals and leaves the wind has put on the water
     this.gate = { till: 0, level: 1 };
     this.watch = false;      // Watch mode: sit back and let the caretaker look after things
     this.keeper = null;      // the caretaker, while there is one in the garden
@@ -457,25 +444,8 @@
   Game.prototype._buildField = function () {
     var fw = Math.ceil(COLS * AW / FC) + 1, fh = Math.ceil(ROWS * AH / FC) + 1, n = fw * fh;
     var wet = new Uint8Array(n), ch = [], x, y, i;
-    // which sections of each pond are open
-    var lakes = BIOMES.map(function (b, bi) {
-      var open = [[false, false], [false, false]], any = false, c, r;
-      for (r = 0; r < 2; r++) for (c = 0; c < 2; c++) {
-        var a = areaAt(b.c0 + c, b.r0 + r);
-        if (a && this.kindOf(a.id) === 'pond') { open[r][c] = true; any = true; }
-      }
-      return any ? { bx: b.c0 * AW, by: b.r0 * AH, open: open, seed: 1 + bi * 2.1 } : null;
-    }, this);
-    for (y = 0; y < fh; y++) {
-      for (x = 0; x < fw; x++) {
-        var px = x * FC, py = y * FC, on = 0;
-        for (i = 0; i < lakes.length && !on; i++) {
-          var lk = lakes[i];
-          if (lk && px > lk.bx && px < lk.bx + 2 * AW && py > lk.by && py < lk.by + 2 * AH && lakeD(px, py, lk.bx, lk.by, lk.open, lk.seed) < 0) on = 1;
-        }
-        wet[y * fw + x] = on;
-      }
-    }
+    var lv = this.lots.home ? this.lots.home.level : 1;
+    for (y = 0; y < fh; y++) for (x = 0; x < fw; x++) wet[y * fw + x] = lakeD(x * FC, y * FC, lv, 1.3) < 0 ? 1 : 0;
     // distance to the nearest cell of the other kind, by two sweeps
     function sweep(zeroWhere) {
       var d = new Float32Array(n), A = FC, B = FC * 1.4142, v, j;
@@ -511,11 +481,8 @@
     for (y = 0; y < fh; y++) for (x = 0; x < fw; x++) {
       i = y * fw + x;
       var ok = f[i] < -14 && x >= m && y >= m && x < fw - m && y < fh - m;
-      for (j = 0; j < ch.length && !ok; j++) {
-        var c = ch[j], mx = (c.x0 + c.x1) / 2, my = (c.y0 + c.y1) / 2, dx = c.x1 - c.x0, dy = c.y1 - c.y0, dl = Math.hypot(dx, dy);
-        var along = ((x * FC - mx) * dx + (y * FC - my) * dy) / dl, across = ((x * FC - mx) * -dy + (y * FC - my) * dx) / dl;
-        if (Math.abs(along) < 30 && Math.abs(across) < c.w + 60) ok = true;
-      }
+      // the moon bridge, once built, runs from the top bank out to the island
+      if (!ok && this.works && this.works.bridge && Math.abs(x * FC - ISLE.x) < 26 && y * FC > 60 && y * FC < ISLE.y) ok = true;
       walk[i] = ok ? 1 : 0; toGate[i] = -1;
     }
     for (j = 0; j < GATES.length; j++) {
@@ -538,6 +505,9 @@
       }
     }
     this.walk = walk; this.toGate = toGate; this._loops = null;
+    // where the waterfall spills in: the bank straight up from the middle of the bay
+    for (y = Math.round(LAKE.lv[lv - 1][1] / FC); y > 0 && f[y * fw + Math.round(FALLS_X / FC)] > 0; y--);
+    this.fallsAt = [FALLS_X, y * FC];
     if (this.cat && !this.walkable(this.cat.x, this.cat.y)) this._placeCat();
     if (this.keeper) this.keeper = null;
     this._shapeKey();
@@ -594,84 +564,22 @@
   };
   /* The area in the middle of the view. */
   Game.prototype.focusArea = function () { return this.areaUnder(this.cam.x + this.W / 2, this.cam.y + this.H / 2); };
-  /* How many sections of a pond are open. */
-  Game.prototype.sections = function (pond) {
-    var n = 0, id;
-    for (id in this.lots) if (this.lots[id].kind === 'pond' && areaById(id).biome === pond) n++;
-    return n;
-  };
-  Game.prototype.pondsOpen = function () {
-    var n = 0, i;
-    for (i = 0; i < BIOMES.length; i++) if (this.sections(BIOMES[i].id)) n++;
-    return n;
-  };
-  /* Room for koi in one pond: the Home pond starts with more; every further section of any pond adds six. */
-  Game.prototype.pondCap = function (pond) {
-    var n = 0, id;
-    for (id in this.lots) {
-      if (this.lots[id].kind !== 'pond' || areaById(id).biome !== pond) continue;
-      n += (id === 'home' ? T.capacity + 4 * (this.lots[id].level - 1) : 6 + 3 * (this.lots[id].level - 1));
-    }
-    return n;
-  };
-  Game.prototype.pondCount = function (pond) {
-    var n = 0, i;
-    for (i = 0; i < this.koi.length; i++) if (this.koi[i].pond === pond) n++;
-    return n;
-  };
-  Game.prototype.capacity = function () {
-    var n = 0, i;
-    for (i = 0; i < BIOMES.length; i++) n += this.pondCap(BIOMES[i].id);
-    return n;
-  };
-  /* Which pond a point of water belongs to. */
-  Game.prototype.pondAt = function (x, y) { var a = this.pondNear(x, y); return a ? a.biome : 'home'; };
-  /* May this koi live in that pond? '' if so, else why not. Its colours must be in, and be the pond's colours. */
-  Game.prototype.accepts = function (pond, genes, growth) {
-    var b = biomeById(pond);
-    if (!b || !this.sections(pond)) return 'That pond is not open yet.';
-    if (!b.bases) return '';
-    if (growth < T.growYoung) return 'Its colours are not in yet.';
-    var base = BASES[phenotype(genes).base];
-    if (b.bases.indexOf(base.id) < 0) return 'Only ' + this.likes(pond) + ' koi live in the ' + b.name + '.';
-    return '';
-  };
-  Game.prototype.likes = function (pond) {
-    var b = biomeById(pond);
-    if (!b || !b.bases) return 'any';
-    return b.bases.map(function (id) { for (var i = 0; i < BASES.length; i++) if (BASES[i].id === id) return BASES[i].name.toLowerCase(); }).join(' and ');
-  };
-  Game.prototype.canMove = function (k, pond) {
-    if (!k) return 'No such koi.';
-    if (k.pond === pond) return k.name + ' already lives there.';
-    if (this.pairOf(k.id)) return 'Paired koi stay until their fry arrive.';
-    var why = this.accepts(pond, k.genes, k.growth);
-    if (why) return why;
-    if (this.pondCount(pond) >= this.pondCap(pond)) return 'The ' + biomeById(pond).name + ' is full.';
-    return '';
-  };
-  /* Carry a koi to another pond. */
-  Game.prototype.move = function (id, pond) {
-    var k = this.byId(id);
-    if (this.canMove(k, pond)) return false;
-    this.poke(k.x, k.y, 0.4, true);
-    k.pond = pond;
-    this._embody(k);
-    this.poke(k.x, k.y, 0.6, true);
-    this.events.push({ kind: 'bought', text: k.name + ' now lives in the ' + biomeById(pond).name + '.' });
-    return true;
-  };
-  /* A pond with room that would take a koi like this, the Home pond first. Null if there is none. */
-  Game.prototype.roomFor = function (genes, growth) {
-    for (var i = 0; i < BIOMES.length; i++) {
-      var id = BIOMES[i].id;
-      if (!this.accepts(id, genes, growth) && this.pondCount(id) < this.pondCap(id)) return id;
-    }
-    return null;
-  };
+  /* There is one lake. These answer the questions the many ponds used to. */
+  Game.prototype.sections = function (pond) { return pond === 'home' ? 1 : 0; };
+  Game.prototype.pondsOpen = function () { return 1; };
+  Game.prototype.capacity = function () { return LAKE_CAP[clamp(this.lots.home.level, 1, 4) - 1]; };
+  Game.prototype.pondCap = function (pond) { return pond === 'home' ? this.capacity() : 0; };
+  Game.prototype.pondCount = function (pond) { return pond === 'home' ? this.koi.length : 0; };
+  Game.prototype.pondAt = function () { return 'home'; };
+  Game.prototype.accepts = function () { return ''; };
+  Game.prototype.likes = function () { return 'any'; };
+  Game.prototype.canMove = function () { return 'There is only the one lake.'; };
+  Game.prototype.move = function () { return false; };
+  Game.prototype.roomFor = function () { return this.koi.length < this.capacity() ? 'home' : null; };
   Game.prototype._shapeKey = function () {
     var ids = Object.keys(this.lots).sort(), k = '', i;
     for (i = 0; i < ids.length; i++) k += ids[i] + this.lots[ids[i]].kind + this.lots[ids[i]].level + ',';
+    k += (this.works && this.works.bridge ? 'b' : '') + (this.works && this.works.falls ? 'f' : '');
     this.shapeKey = k;
   };
 
@@ -743,8 +651,10 @@
   };
   Game.prototype.upgradeCost = function (id) {
     var lot = this.lots[id];
-    if (!lot || lot.level >= 3) return 0;
-    return Math.round(this.buildCost(id, lot.kind === 'market' ? 'pond' : lot.kind) * (lot.kind === 'market' ? 1.2 : 1) * [1.5, 2.5][lot.level - 1] / 10) * 10;
+    if (!lot) return 0;
+    if (id === 'home') return lot.level < 4 ? LAKE_COST[lot.level - 1] : 0;
+    if (lot.level >= 3) return 0;
+    return Math.round(KINDS[lot.kind].cost * [1.5, 2.5][lot.level - 1] / 10) * 10;
   };
   Game.prototype.upgrade = function (id) {
     var lot = this.lots[id], cost = this.upgradeCost(id);
@@ -752,8 +662,32 @@
     this.coins -= cost;
     lot.level++;
     this.stats.upgrades++;
-    this._shapeKey();
-    this.events.push({ kind: 'unlock', text: KINDS[lot.kind].name + ' is now level ' + lot.level + '.' });
+    if (id === 'home') {
+      this._buildField();
+      this.addPad(true, false, AREAS[0]);
+      this.events.push({ kind: 'unlock', text: 'The lake is bigger: room for ' + this.capacity() + ' koi.' });
+    } else {
+      this._shapeKey();
+      this.events.push({ kind: 'unlock', text: KINDS[lot.kind].name + ' is now level ' + lot.level + '.' });
+    }
+    return true;
+  };
+  /* Lake works. '' if this one can be built now, else why not. */
+  Game.prototype.hasWork = function (id) { return id === 'tea' ? !!this.lots.tea : !!this.works[id]; };
+  Game.prototype.canWork = function (id) {
+    var w = WORKS[id];
+    if (!w) return 'No such thing.';
+    if (this.hasWork(id)) return 'Already built.';
+    if (this.coins < w.cost) return 'Needs ' + w.cost + ' coins.';
+    return '';
+  };
+  Game.prototype.buildWork = function (id) {
+    if (this.canWork(id)) return false;
+    this.coins -= WORKS[id].cost;
+    if (id === 'tea') { this.lots.tea = { kind: 'tea', level: 1, till: 0 }; this.unlocked.tea = true; this._shapeKey(); }
+    else { this.works[id] = true; this._buildField(); }
+    this.stats.upgrades++;
+    this.events.push({ kind: 'unlock', text: WORKS[id].name + ' built.' });
     return true;
   };
   Game.prototype.tillCap = function (id) {
@@ -779,7 +713,7 @@
     this.watch = !!on;
     if (on) this.touch();
   };
-  Game.prototype._keeperHome = function () { var m = SHAPES.market; return [m.cx + 330, m.cy + 40]; };
+  Game.prototype._keeperHome = function () { return [860, 896]; };
   Game.prototype._keeperGo = function (kp, x, y, job) {
     var path = this.routeBetween(kp.x, kp.y, x, y);
     if (!path || path.length < 2) { kp.state = 'idle'; kp.timer = 3; return false; }
@@ -939,9 +873,7 @@
   };
   /* The built plot whose shape is under a point, or null. */
   Game.prototype.lotAt = function (x, y) {
-    if (x < 0 || y < 0 || x > COLS * AW || y > ROWS * AH) return null;
-    var a = this.areaUnder(x, y);
-    return this.lots[a.id] && inBlob(SHAPES[a.id], x, y) ? a : null;
+    return this.lots.tea && inBlob(SHAPES.tea, x, y) ? { id: 'tea' } : null;
   };
 
   /* ---------- the garden's name ---------- */
@@ -949,7 +881,8 @@
     var r = 0, i, id;
     for (i = 0; i < this.koi.length; i++) r += this.koi[i].growth >= T.growAdult ? 10 : this.koi[i].growth >= T.growYoung ? 4 : 1;
     r += 6 * this.bookCount();
-    for (id in this.lots) r += KINDS[this.lots[id].kind].renown * LEVEL[this.lots[id].level - 1];
+    for (id in this.lots) r += id === 'home' ? 40 * this.lots.home.level : KINDS[this.lots[id].kind].renown * LEVEL[this.lots[id].level - 1];
+    for (id in this.works) if (this.works[id]) r += WORKS[id].renown;
     r += 1.5 * Math.min(60, this.plants.length + this.pads.length);
     r += 40 * Object.keys(this.shows || {}).length;      // every show won makes the garden better known
     return Math.round(r);
@@ -974,8 +907,9 @@
   /* The view may roam over every open area, and lean a little way into its closed neighbours. */
   /* How far the top left of the view may go: { x0, x1, y0, y1 }. */
   Game.prototype.camLimits = function () {
-    // the middle of the view may be anywhere in the garden, open or not
-    return { x0: -this.W / 2, x1: COLS * AW - this.W / 2, y0: -this.H / 2, y1: ROWS * AH - this.H / 2 };
+    // the view never moves: the middle of the screen is the middle of the garden
+    var x = AW / 2 - this.W / 2, y = AH / 2 - this.H / 2;
+    return { x0: x, x1: x, y0: y, y1: y };
   };
   Game.prototype._clampCam = function () {
     var L = this.camLimits(), c = this.cam;
@@ -1168,6 +1102,7 @@
   };
 
   Game.prototype.canSell = function (k) {
+    if (k.wild) return 'Welcome it to the lake first.';
     if (this.pairOf(k.id)) return 'Paired koi stay until their fry arrive.';
     if (this.koi.length <= 2) return 'Keep at least two koi in the pond.';
     return '';
@@ -1188,7 +1123,7 @@
     if (stageOf(b) === 'Fry' || stageOf(b) === 'Young') return b.name + ' is not grown yet.';
     if (this.pairOf(a.id)) return a.name + ' is already paired.';
     if (this.pairOf(b.id)) return b.name + ' is already paired.';
-    if (a.pond !== b.pond) return a.name + ' and ' + b.name + ' live in different ponds.';
+    if (a.wild || b.wild) return 'Welcome the wild koi first.';
     return '';
   };
   Game.prototype.pair = function (aId, bId) {
@@ -1275,7 +1210,7 @@
      frame and for eight hours away alike, so catching up is a formula. */
   Game.prototype._progress = function (realDt, mult, incomeDt) {
     var pondDt = realDt * mult, i, k, total = 0;
-    var span = T.fullSpan * (1 + T.padShade * this.eff('pad')) * (1 + 0.08 * this.eff('spout'));
+    var span = T.fullSpan * (1 + T.padShade * this.eff('pad')) * (1 + 0.08 * this.eff('spout')) * (this.works.falls ? 1.08 : 1);
     var hungry = T.hungryGrowth + 0.03 * this.eff('duckweed');
     var reeds = (1 + T.reedGrowth * this.eff('reed')) * (1 + 0.10 * Math.min(2.3, this.power('bamboo')));
     this.pondTime += pondDt;
@@ -1337,6 +1272,7 @@
     var before = this.coins, e0 = this.events.length;
     this._progress(elapsed, 1, Math.min(elapsed, T.offlineIncomeCap));
     this.gate.till = Math.min(this.gateCap(), this.gate.till + this.gateCap() * 0.5 * Math.min(1, elapsed / 7200));
+    this.seasonClock += elapsed; this._seasonWas = this.season().i;
     // the tills kept filling while you were out, up to about half
     for (var id in this.lots) {
       var cap = this.tillCap(id);
@@ -1360,6 +1296,7 @@
     this.time += DT;
     this.sinceInput += DT;
     this.sitting += DT * s;
+    this._stepSeason(DT * s);
     this._progress(DT * s, this.presence(), DT * s);
     this._idle(DT);
     this.grid.step();
@@ -1733,11 +1670,18 @@
     // walk out from the middle of this section until the bank. Where the water runs off the screen to the next
     // section there is no bank to stand on, so try another way. The headland island cannot be reached on foot.
     var base = koi ? Math.atan2(koi.y - sh.cy, koi.x - sh.cx) : rng() * 6.283, tg = this.toGate;
+    if (this.works.bridge && rng() < 0.3) {
+      // out on the island, by the water
+      for (t = 0; t < 10; t++) {
+        var ia = rng() * 6.283, ix = ISLE.x + Math.cos(ia) * ISLE.rx * 0.55, iy = ISLE.y + Math.sin(ia) * ISLE.ry * 0.5;
+        if (this.walkable(ix, iy) && tg[this._cell(ix, iy)] >= 0) return [ix, iy];
+      }
+    }
     for (t = 0; t < 26; t++) {
       var ang = base + (rng() - 0.5) * (0.8 + t * 0.5), ux = Math.cos(ang), uy = Math.sin(ang), r, x = 0, y = 0, hit = false, crowded = false;
       for (r = 60; r < 760; r += 14) {
         x = sh.cx + ux * r; y = sh.cy + uy * r;
-        if (Math.abs(x - sh.cx) > 612 || Math.abs(y - sh.cy) > 378) break;
+        if (Math.abs(x - sh.cx) > 760 || Math.abs(y - sh.cy) > 470) break;
         if (this.depth(x, y) < -30) { hit = true; break; }
       }
       if (!hit || !this.walkable(x, y) || tg[this._cell(x, y)] < 0) continue;
@@ -1747,10 +1691,11 @@
     return null;
   };
   /* A guest comes in at a gate with a few places in mind. first / koi: where they are headed first, if we know. */
-  Game.prototype._newGuest = function (first, koi) {
+  Game.prototype._newGuest = function (first, koi, opt) {
     var rng = this.rng, vs = this.visitors, ids = Object.keys(this.lots), stops = [], t, id;
     // nobody comes while you are away from the pond, or while the garden is shut (closed is for testing)
-    if (this.closed || this.presence() <= 1.5 || vs.length >= this.maxGuests()) return null;
+    opt = opt || {};
+    if (this.closed || this.presence() <= 1.5 || (vs.length >= this.maxGuests() && !opt.force)) return null;
     if (first) stops.push(first);
     var want = 2 + ((rng() * 3) | 0);
     for (t = 0; t < 30 && stops.length < want; t++) {
@@ -1759,6 +1704,7 @@
       if (stops.indexOf(id) < 0 && rng() < like) stops.push(id);
     }
     if (!stops.length) stops.push('home');
+    if (opt.painter) stops = ['home'];
     var entry = this._entry();
     if (!entry || entry.length < 2) return null;
     var path = entry.slice(), last = path[path.length - 1];
@@ -1766,6 +1712,7 @@
     stops.unshift('gate');
     var v = { x: path[0][0] + (rng() - 0.5) * 50, y: path[0][1], bx: path[path.length - 1][0], by: path[path.length - 1][1], path: path, pi: 1, state: 'walk', leaving: false, did: false,
               stops: stops, si: 0, timer: 0, a: 0, koi: koi ? koi.id : 0, seed: (rng() * 1e9) | 0, phase: rng() * 6, throwT: 0, age: 0, speed: 100 + rng() * 30 };
+    if (opt.painter) v.painter = true;
     vs.push(v);
     this.stats.guests++;
     return v;
@@ -1842,7 +1789,8 @@
           if (took > 0) this._cue('ticket', v.x, 0.5);
         } else if (!v.did && lot) {
           v.did = true;
-          if (lot.kind === 'pond') { this._throw(v); v.timer = 4 + rng() * 6; }
+          if (lot.kind === 'pond' && v.painter) { v.painting = true; v.timer = 45 + rng() * 25; }
+          else if (lot.kind === 'pond') { this._throw(v); v.timer = 4 + rng() * 6; }
           else {
             var kd = KINDS[lot.kind];
             if (kd.pay) {
@@ -1852,6 +1800,14 @@
             }
             v.timer = 1 + rng() * 1.5;
           }
+        } else if (v.painting) {
+          // the picture is done: the painter pays for the view, and goes
+          var tip = 20 + 10 * this.stars();
+          v.painting = false; v.timer = 1;
+          this.coins += tip;
+          this.floaters.push({ x: v.x, y: v.y - 30, text: '+' + tip, age: 0 });
+          this.events.push({ kind: 'sold', text: 'The painter finished a picture of the lake and left you ' + tip + ' coins.' });
+          this._cue('pick', v.x, 0.8);
         } else if (!this._onward(v)) vs.splice(i, 1);
         continue;
       }
@@ -1947,7 +1903,7 @@
         this.poke(at.x + Math.cos(at.a) * 52, at.y + Math.sin(at.a) * 52, 0.45, true);
       }
     }
-    this._stepRain(dt); this._stepFly(dt); this._stepFrog(dt);
+    this._stepRain(dt); this._stepFly(dt); this._stepFrog(dt); this._stepHappen(dt);
     this._stepKeeper(dt); this._stepCat(dt);
   };
 
@@ -1955,7 +1911,10 @@
   Game.prototype._stepRain = function (dt) {
     var r = this.rain, rng = this.rng;
     r.timer -= dt;
-    if (r.timer <= 0) { r.on = !r.on; r.timer = r.on ? 70 + rng() * 60 : 420 + rng() * 420; }
+    if (r.timer <= 0) {
+      r.on = !r.on; r.timer = r.on ? 70 + rng() * 60 : 420 + rng() * 420;
+      if (!r.on && this.presence() > 1.5) this.startHappening('rainbow');   // the sun comes out after the rain
+    }
     r.amt = clamp(r.amt + (r.on ? dt / 8 : -dt / 10), 0, 1);
     if (r.amt > 0 && rng() < r.amt * 0.4) this.grid.drop(rng() * (this.grid.w - 1), rng() * (this.grid.h - 1), 0.1 + rng() * 0.2);
   };
@@ -2017,6 +1976,273 @@
     var fr = this.frog, fl = this.fly, p;
     if (fr.pad >= 0) { p = this.pads[fr.pad]; if (p && Math.hypot(p.x - x, p.y - y) < 190) this._frogJump(); }
     if ((fl.state === 'sit' || fl.state === 'in') && Math.hypot(fl.x - x, fl.y - y) < 220) this._flyLeave();
+  };
+
+  /* ---------- the turning year ---------- */
+  Game.prototype.season = function () {
+    var n = this.seasonClock / T.seasonLen, i = Math.floor(n) % 4, f = n - Math.floor(n), fade = T.seasonFade / T.seasonLen;
+    return { i: i, id: SEASONS[i].id, name: SEASONS[i].name, next: SEASONS[(i + 1) % 4], mix: clamp((f - (1 - fade)) / fade, 0, 1), f: f };
+  };
+  Game.prototype._stepSeason = function (dt) {
+    this.seasonClock += dt;
+    var se = this.season();
+    if (this._seasonWas === undefined) this._seasonWas = se.i;
+    if (se.i !== this._seasonWas) {
+      this._seasonWas = se.i;
+      this.events.push({ kind: 'season', text: SEASON_TEXT[se.id] });
+    }
+  };
+
+  /* ---------- happenings ----------
+     Something is always going on at the lake. While you are here, every half a minute or so something
+     drops in: a heron to fish, ducks paddling across, a turtle, a kingfisher, a gust of petals, a painter,
+     a school trip, a wild koi from the stream; and at night lanterns on the water or fireflies.
+     Each one is { kind, t (seconds so far), dur, x, y, a, state }. */
+  var HAPPEN_TEXT = {
+    heron: 'A heron has landed to fish. Tap it to shoo it off.',
+    turtle: 'A turtle has come up for air. Tap it for luck.',
+    wild: 'A wild koi has swum in from the stream. Tap it to welcome it.',
+    painter: 'A painter has come to paint the lake.',
+    school: 'A school trip has come to see the koi.',
+    lanterns: 'Someone has set paper lanterns afloat.'
+  };
+  var AMBIENT = { gust: 1, lanterns: 1, fireflies: 1, mist: 1, rainbow: 1 };
+  Game.prototype._waterSpot = function (m) { return this.spotIn(AREAS[0], m || 60); };
+  Game.prototype._offEdge = function (x, y) {
+    // the nearest point a little way off the edge of the screen
+    var c = this.cam, l = x - c.x, r = c.x + this.W - x, t = y - c.y, b = c.y + this.H - y, m = Math.min(l, r, t, b);
+    return m === l ? [c.x - 80, y] : m === r ? [c.x + this.W + 80, y] : m === t ? [x, c.y - 80] : [x, c.y + this.H + 80];
+  };
+  Game.prototype.duckAt = function (h, j) {
+    var wig = Math.sin(h.t * 1.3 + j * 1.9) * 9;
+    return [h.x - Math.cos(h.a) * j * 36 - Math.sin(h.a) * wig, h.y - Math.sin(h.a) * j * 36 + Math.cos(h.a) * wig];
+  };
+  Game.prototype._pickHappening = function () {
+    var rng = this.rng, se = this.season().id, min = this.sitting / 60, hs = this.happ.list, pool = [], total = 0, i, r;
+    function add(k, w) {
+      for (var j = 0; j < hs.length; j++) if (hs[j].kind === k) return;
+      if (w > 0) { pool.push([k, w]); total += w; }
+    }
+    add('heron', 2); add('kingfisher', 2); add('gust', 2.2); add('painter', 0.9);
+    add('ducks', se === 'snow' ? 0.6 : 2); add('turtle', se === 'snow' ? 0 : 1.4);
+    if (this.stars() >= 2) add('school', 0.8);
+    if (this.koi.length < this.capacity() && this.time - this.happ.wildAt > (this.works.falls ? 150 : 300)) add('wild', this.works.falls ? 2.4 : 1.2);
+    if (min > 100) { add('lanterns', 2); if (se === 'spring' || se === 'lotus') add('fireflies', 3); }
+    if (min < 25) add('mist', 1.4);
+    r = rng() * total;
+    for (i = 0; i < pool.length; i++) { r -= pool[i][1]; if (r < 0) return pool[i][0]; }
+    return null;
+  };
+  /* Start something happening now. Returns it, or null if it cannot happen just now. */
+  Game.prototype.startHappening = function (kind) {
+    var rng = this.rng, h = { kind: kind, t: 0, dur: 60, x: 0, y: 0, a: 0, state: 'on', seed: (rng() * 1e9) | 0 }, p, q, e, t;
+    if (kind === 'heron') {
+      p = this._spot('home', null);
+      if (!p) return null;
+      e = this._offEdge(p[0], p[1]);
+      h.x = e[0]; h.y = e[1]; h.tx = p[0]; h.ty = p[1]; h.state = 'fly'; h.dur = 70 + rng() * 40; h.strike = 0; h.next = 4;
+      h.a = Math.atan2(p[1] - e[1], p[0] - e[0]);
+    } else if (kind === 'ducks') {
+      p = this._waterSpot(90);
+      for (t = 0; t < 30; t++) {
+        q = this._waterSpot(90);
+        var ok = Math.hypot(q[0] - p[0], q[1] - p[1]) > 380, n;
+        for (n = 1; n < 20 && ok; n++) if (this.depth(p[0] + (q[0] - p[0]) * n / 20, p[1] + (q[1] - p[1]) * n / 20) < 35) ok = false;
+        if (ok) break;
+        q = null;
+      }
+      if (!q) return null;
+      h.x = p[0]; h.y = p[1]; h.tx = q[0]; h.ty = q[1]; h.a = Math.atan2(q[1] - p[1], q[0] - p[0]); h.n = 2 + ((rng() * 3) | 0); h.dur = 120; h.fast = 0;
+      this.poke(p[0], p[1], 0.5, true);
+    } else if (kind === 'turtle') {
+      p = this._waterSpot(110);
+      h.x = p[0]; h.y = p[1]; h.a = rng() * 6.283; h.dur = 45 + rng() * 30;
+      this.poke(p[0], p[1], 0.5, true);
+    } else if (kind === 'kingfisher') {
+      p = this._waterSpot(70); e = this._offEdge(p[0] + (rng() - 0.5) * 400, p[1]);
+      h.x = e[0]; h.y = e[1]; h.tx = p[0]; h.ty = p[1]; h.state = 'fly'; h.dur = 20; h.a = Math.atan2(p[1] - e[1], p[0] - e[0]);
+    } else if (kind === 'gust') {
+      h.a = (rng() < 0.5 ? 0 : Math.PI) + (rng() - 0.5) * 0.7; h.dur = 7; h.every = 0;
+    } else if (kind === 'wild') {
+      if (this.koi.length >= this.capacity()) return null;
+      var genes = randomGenes(rng), g2 = randomGenes(rng);
+      if (rarity(g2) > rarity(genes)) genes = g2;
+      p = this.works.falls ? this.clampIn(this.fallsAt[0], this.fallsAt[1] + 60, 40) : this._waterSpot(60);
+      var k = this.addKoi(genes, 0, 0.9 + rng() * 0.3, p[0], p[1], 'home');
+      k.growth = T.growYoung * (1.05 + rng() * 0.7); this._fit(k); k.v = k.base;
+      k.wild = 120; k.full = 0.7;
+      h.koi = k.id; h.dur = 130; this.happ.wildAt = this.time;
+      this.sparks.push({ x: p[0], y: p[1], age: 0 });
+      this.poke(p[0], p[1], 0.7, true);
+    } else if (kind === 'painter') {
+      var v = this._newGuest('home', null, { painter: true, force: true });
+      if (!v) return null;
+      h.v = v; h.dur = 300;
+    } else if (kind === 'school') {
+      if (this.closed || this.presence() <= 1.5) return null;
+      h.left = 5; h.qt = 0; h.dur = 60;
+    } else if (kind === 'lanterns') { h.dur = 130; }
+    else if (kind === 'fireflies') { h.dur = 120; }
+    else if (kind === 'mist') { h.dur = 100; }
+    else if (kind === 'rainbow') { h.dur = 45; }
+    else return null;
+    this.happ.list.push(h);
+    if (HAPPEN_TEXT[kind]) this.events.push({ kind: 'happen', text: HAPPEN_TEXT[kind] });
+    return h;
+  };
+  Game.prototype._stepHappen = function (dt) {
+    var hp = this.happ, hs = hp.list, rng = this.rng, i;
+    if (this.presence() > 1.5 && !this.closed) {
+      hp.next -= dt;
+      if (hp.next <= 0) {
+        hp.next = 20 + rng() * 28;
+        var busy = 0;
+        for (i = 0; i < hs.length; i++) if (!AMBIENT[hs[i].kind]) busy++;
+        var kind = this._pickHappening();
+        if (kind && (busy < 2 || AMBIENT[kind])) this.startHappening(kind);
+      }
+    }
+    for (i = hs.length - 1; i >= 0; i--) { hs[i].t += dt; if (this._stepOne(hs[i], dt)) hs.splice(i, 1); }
+    for (i = this.drifts.length - 1; i >= 0; i--) {
+      var d = this.drifts[i], k2 = Math.exp(-dt * 0.35);
+      d.age += dt; d.vx *= k2; d.vy *= k2; d.rot += d.spin * dt;
+      var nx = d.x + d.vx * dt, ny = d.y + d.vy * dt;
+      if (this.depth(nx, ny) > 8) { d.x = nx; d.y = ny; } else { d.vx = d.vy = 0; }
+      if (d.age > d.life) this.drifts.splice(i, 1);
+    }
+  };
+  /* One step of one happening. True when it is over. */
+  Game.prototype._stepOne = function (h, dt) {
+    var rng = this.rng, dx, dy, d, k, i;
+    function fly(sp) {
+      dx = h.tx - h.x; dy = h.ty - h.y; d = Math.hypot(dx, dy);
+      if (d > 0.5) { h.a += wrapAngle(Math.atan2(dy, dx) - h.a) * Math.min(1, dt * 6); }
+      var st = Math.min(d, sp * dt);
+      if (d > 0.01) { h.x += dx / d * st; h.y += dy / d * st; }
+      return d <= sp * dt + 0.5;
+    }
+    switch (h.kind) {
+      case 'heron':
+        if (h.state === 'fly') {
+          if (fly(260)) { h.state = 'stand'; var g = this.inward(h.x, h.y); h.a = Math.atan2(g[1], g[0]); }
+        } else if (h.state === 'stand') {
+          if (h.strike > 0) h.strike = Math.max(0, h.strike - dt * 2);
+          h.next -= dt;
+          if (h.next <= 0) {
+            h.next = 4 + rng() * 5;
+            var fx = h.x + Math.cos(h.a) * 70, fy = h.y + Math.sin(h.a) * 70;
+            for (i = 0; i < this.koi.length; i++) {
+              k = this.koi[i];
+              if (Math.hypot(k.x - fx, k.y - fy) < 230) { h.strike = 1; this.poke(fx, fy, 0.6, true); this._startle(fx, fy, 230, true); break; }
+            }
+          }
+          if (h.t > h.dur) this._heronOff(h);
+        } else if (fly(300)) return true;
+        return false;
+      case 'ducks':
+        dx = h.tx - h.x; dy = h.ty - h.y; d = Math.hypot(dx, dy);
+        var sp = h.fast > 0 ? 80 : 34;
+        h.fast = Math.max(0, h.fast - dt);
+        if (d > 1) { h.x += dx / d * Math.min(d, sp * dt); h.y += dy / d * Math.min(d, sp * dt); }
+        h.every = (h.every || 0) - dt;
+        if (h.every <= 0) {
+          h.every = 0.35;
+          for (i = 0; i < h.n; i++) { var dp = this.duckAt(h, i); this.grid.drop(this.gx(dp[0] - Math.cos(h.a) * 12), this.gy(dp[1] - Math.sin(h.a) * 12), 0.05); }
+        }
+        if (d < 2 || h.t > h.dur) { this.poke(h.x, h.y, 0.4, true); return true; }
+        return false;
+      case 'turtle':
+        if (h.t > h.dur || h.state === 'down') { this.poke(h.x, h.y, 0.6, true); return true; }
+        h.a += Math.sin(h.t * 0.4) * dt * 0.2;
+        return false;
+      case 'kingfisher':
+        if (h.state === 'fly') {
+          if (fly(420)) {
+            this.poke(h.x, h.y, 0.9, true); this._cue('splash', h.x, 0.6);
+            this._startle(h.x, h.y, 160, true);
+            var o = this._offEdge(h.x, h.y); h.tx = o[0]; h.ty = o[1]; h.state = 'out';
+          }
+        } else if (fly(360) || h.t > h.dur) return true;
+        return false;
+      case 'gust':
+        h.every -= dt;
+        while (h.every <= 0 && h.t < h.dur) {
+          h.every += 0.09;
+          var at = this._waterSpot(20), spd = 50 + rng() * 60, wa = h.a + (rng() - 0.5) * 0.5;
+          this.drifts.push({ x: at[0], y: at[1], vx: Math.cos(wa) * spd, vy: Math.sin(wa) * spd, age: 0, life: 14 + rng() * 14,
+                             rot: rng() * 6.283, spin: (rng() - 0.5) * 2, r: 0.7 + rng() * 0.6, kind: this.season().id });
+          if (rng() < 0.3) this.grid.drop(this.gx(at[0]), this.gy(at[1]), 0.06);
+        }
+        while (this.drifts.length > 140) this.drifts.shift();
+        return h.t > h.dur;
+      case 'wild':
+        k = this.byId(h.koi);
+        if (!k || !k.wild) return true;
+        k.wild -= dt;
+        if (k.wild <= 0) {
+          this.poke(k.x, k.y, 0.6, true);
+          this.koi.splice(this.koi.indexOf(k), 1);
+          this.events.push({ kind: 'happen', text: 'The wild koi swam off downstream.' });
+          return true;
+        }
+        return false;
+      case 'painter':
+        return this.visitors.indexOf(h.v) < 0;
+      case 'school':
+        h.qt -= dt;
+        if (h.qt <= 0 && h.left > 0) { h.qt = 1.1; h.left--; this._newGuest(null, null, { force: true }); }
+        return h.left <= 0 || h.t > h.dur;
+      default:
+        return h.t > h.dur;
+    }
+  };
+  Game.prototype._heronOff = function (h) {
+    var o = this._offEdge(h.x, h.y);
+    h.tx = o[0]; h.ty = o[1]; h.state = 'off';
+  };
+  /* A tap that lands on something visiting. True if it did. */
+  Game.prototype.tapHappening = function (x, y) {
+    var hs = this.happ.list, i, j, h, gift;
+    for (i = 0; i < hs.length; i++) {
+      h = hs[i];
+      if (h.kind === 'heron' && h.state !== 'off' && Math.hypot(h.x - x, h.y - y) < 50) {
+        this._heronOff(h);
+        gift = 5 + 3 * this.stars();
+        this.coins += gift; this.stats.herons++;
+        this.floaters.push({ x: h.x, y: h.y - 34, text: '+' + gift, age: 0 });
+        this.events.push({ kind: 'happen', text: 'Off it goes. The koi are safe, and it dropped a feather worth ' + gift + ' coins.' });
+        this._cue('splash', h.x, 0.5); this.touch();
+        return true;
+      }
+      if (h.kind === 'turtle' && h.state !== 'down' && Math.hypot(h.x - x, h.y - y) < 44) {
+        h.state = 'down';
+        gift = 10 + 5 * this.stars();
+        this.coins += gift;
+        this.floaters.push({ x: h.x, y: h.y - 30, text: '+' + gift, age: 0 });
+        this.events.push({ kind: 'happen', text: 'The turtle blinks at you and slips under. Good luck: ' + gift + ' coins.' });
+        this._cue('plop', h.x, 0.7); this.touch();
+        return true;
+      }
+      if (h.kind === 'ducks') {
+        for (j = 0; j < h.n; j++) {
+          var dp = this.duckAt(h, j);
+          if (Math.hypot(dp[0] - x, dp[1] - y) < 30) { h.fast = 3; this.poke(dp[0], dp[1], 0.5, true); this._cue('splash', dp[0], 0.4); this.touch(); return true; }
+        }
+      }
+    }
+    return false;
+  };
+  /* A wild koi, welcomed: it stays. */
+  Game.prototype.welcome = function (id) {
+    var k = this.byId(id);
+    if (!k || !k.wild) return false;
+    delete k.wild;
+    this.stats.wild++;
+    this._note(k);
+    this.sparks.push({ x: k.x, y: k.y, age: 0 });
+    this.events.push({ kind: 'bought', text: k.name + ' has made the lake its home.' });
+    this.touch();
+    return true;
   };
 
   /* ---------- the garden ---------- */
@@ -2183,7 +2409,7 @@
     if (!r) return out;
     for (n = 0; n < this.koi.length; n++) {
       var k = this.koi[n];
-      if (this.revealed(k) && varietyKey(k.genes) === r.key && STAGES.indexOf(stageOf(k)) >= STAGES.indexOf(r.stage) && !this.pairOf(k.id)) out.push(k);
+      if (!k.wild && this.revealed(k) && varietyKey(k.genes) === r.key && STAGES.indexOf(stageOf(k)) >= STAGES.indexOf(r.stage) && !this.pairOf(k.id)) out.push(k);
     }
     return out;
   };
@@ -2211,38 +2437,39 @@
   function baseIs(k, ids) { return ids.indexOf(BASES[phOf(k).base].id) >= 0; }
   function patIs(k, ids) { return ids.indexOf(PATTERNS[phOf(k).pattern].id) >= 0; }
   function atLeast(k, stage) { return STAGES.indexOf(stageOf(k)) >= STAGES.indexOf(stage); }
+  function inSeason(id) { return function (g) { return g.season().id === id; }; }
   var SHOWS = [
     { id: 'fair', name: 'Village Fair', host: 'The village', prize: 200,
       want: 'Any patched koi, grown to Adult.',
       unlock: null,
       fits: function (g, k) { return !patIs(k, ['patched']) ? 'Not patched.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
-    { id: 'blossom', name: 'Spring Blossom Show', host: 'The Spring pond society', prize: 400,
-      want: 'An orange or white koi with a pattern, living in the Spring pond, grown to Adult.',
-      unlock: { text: 'Open the Spring pond', ok: function (g) { return g.sections('spring') > 0; } },
-      fits: function (g, k) { return !baseIs(k, ['orange', 'white']) ? 'Not orange or white.' : patIs(k, ['solid']) ? 'Needs a pattern.' : k.pond !== 'spring' ? 'Must live in the Spring pond.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
+    { id: 'blossom', name: 'Spring Blossom Show', host: 'The spring festival', prize: 400,
+      want: 'An orange or white koi with a pattern, grown to Adult. Held in spring.',
+      unlock: { text: 'Wait for spring', ok: inSeason('spring') },
+      fits: function (g, k) { return !baseIs(k, ['orange', 'white']) ? 'Not orange or white.' : patIs(k, ['solid']) ? 'Needs a pattern.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
     { id: 'teacup', name: 'Tea House Cup', host: 'The tea house', prize: 600,
       want: 'A saddled koi that trusts you.',
-      unlock: { text: 'Build a tea house', ok: function (g) { return g.built('tea') > 0; } },
+      unlock: { text: 'Build the tea house', ok: function (g) { return !!g.lots.tea; } },
       fits: function (g, k) { return !patIs(k, ['saddle']) ? 'Not saddled.' : k.bond < 0.7 ? 'Does not trust you yet.' : ''; } },
     { id: 'lotus', name: 'Lotus Moon Show', host: 'The temple garden', prize: 900,
-      want: 'A gold koi with a pattern, living in the Lotus pond, grown to Adult.',
-      unlock: { text: 'Open the Lotus pond', ok: function (g) { return g.sections('lotus') > 0; } },
-      fits: function (g, k) { return !baseIs(k, ['gold']) ? 'Not gold.' : patIs(k, ['solid']) ? 'Needs a pattern.' : k.pond !== 'lotus' ? 'Must live in the Lotus pond.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
+      want: 'A gold koi with a pattern, grown to Adult. Held in summer.',
+      unlock: { text: 'Wait for summer', ok: inSeason('lotus') },
+      fits: function (g, k) { return !baseIs(k, ['gold']) ? 'Not gold.' : patIs(k, ['solid']) ? 'Needs a pattern.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
     { id: 'maple', name: 'Maple Harvest Show', host: 'The harvest festival', prize: 1300,
-      want: 'A speckled koi living in the Maple pond, grown to Adult.',
-      unlock: { text: 'Open the Maple pond and find 20 kinds of koi', ok: function (g) { return g.sections('maple') > 0 && g.bookCount() >= 20; } },
-      fits: function (g, k) { return !patIs(k, ['speckled']) ? 'Not speckled.' : k.pond !== 'maple' ? 'Must live in the Maple pond.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
+      want: 'A speckled koi, grown to Adult. Held in autumn, once you have found 20 kinds of koi.',
+      unlock: { text: 'Find 20 kinds of koi, and wait for autumn', ok: function (g) { return g.bookCount() >= 20 && g.season().id === 'maple'; } },
+      fits: function (g, k) { return !patIs(k, ['speckled']) ? 'Not speckled.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
     { id: 'snow', name: 'First Snow Show', host: 'The mountain inn', prize: 2000,
-      want: 'A slate koi living in the Snow pond, grown to Adult.',
-      unlock: { text: 'Open the Snow pond', ok: function (g) { return g.sections('snow') > 0; } },
-      fits: function (g, k) { return !baseIs(k, ['slate']) ? 'Not slate.' : k.pond !== 'snow' ? 'Must live in the Snow pond.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
+      want: 'A slate koi, grown to Adult. Held in winter.',
+      unlock: { text: 'Wait for winter', ok: inSeason('snow') },
+      fits: function (g, k) { return !baseIs(k, ['slate']) ? 'Not slate.' : !atLeast(k, 'Adult') ? 'Not an Adult yet.' : ''; } },
     { id: 'lantern', name: 'Lantern Night', host: 'The lantern festival', prize: 3500,
-      want: 'A crowned charcoal or slate koi, living in the Lantern pond, grown to Elder.',
-      unlock: { text: 'Open the Lantern pond', ok: function (g) { return g.sections('lantern') > 0; } },
-      fits: function (g, k) { return !baseIs(k, ['charcoal', 'slate']) ? 'Not charcoal or slate.' : !patIs(k, ['crown']) ? 'Not crowned.' : k.pond !== 'lantern' ? 'Must live in the Lantern pond.' : !atLeast(k, 'Elder') ? 'Not an Elder yet.' : ''; } },
+      want: 'A crowned charcoal or slate koi, grown to Elder. Held after dark, once the moon bridge is built.',
+      unlock: { text: 'Build the moon bridge, and wait for night', ok: function (g) { return !!g.works.bridge && g.sitting / 60 > 100; } },
+      fits: function (g, k) { return !baseIs(k, ['charcoal', 'slate']) ? 'Not charcoal or slate.' : !patIs(k, ['crown']) ? 'Not crowned.' : !atLeast(k, 'Elder') ? 'Not an Elder yet.' : ''; } },
     { id: 'grand', name: 'Grand Champion', host: 'A collector from the city', prize: 8000,
       want: 'A crowned koi with gold markings that trusts you, grown to Elder.',
-      unlock: { text: 'Build every section of all six ponds and earn 5 stars', ok: function (g) { for (var i = 0; i < BIOMES.length; i++) if (g.sections(BIOMES[i].id) < 4) return false; return g.stars() >= 5; } },
+      unlock: { text: 'Dig the lake to its biggest and earn 5 stars', ok: function (g) { return g.lots.home.level >= 4 && g.stars() >= 5; } },
       fits: function (g, k) { var ph = phOf(k); return !patIs(k, ['crown']) ? 'Not crowned.' : ph.second < 0 || SECONDS[ph.second].id !== 'gold' ? 'No gold markings.' : k.bond < 0.7 ? 'Does not trust you yet.' : !atLeast(k, 'Elder') ? 'Not an Elder yet.' : ''; } }
   ];
   /* The show now being held: the first not yet won. Null once all are won. */
@@ -2261,6 +2488,7 @@
   Game.prototype.canEnter = function (s, k) {
     if (!k || this.koi.indexOf(k) < 0) return 'No such koi.';
     if (!this.revealed(k)) return 'Its colours are not in yet.';
+    if (k.wild) return 'Welcome it first.';
     return this.showLocked(s) || s.fits(this, k);
   };
   Game.prototype.showEntrants = function (s) {
@@ -2283,13 +2511,13 @@
   Game.prototype.toJSON = function () {
     var W = this.W, H = this.H;
     return {
-      v: 1, layout: 6, goods: this.goods, seed: this.seed, coins: this.coins, coinFrac: this.coinFrac, nextId: this.nextId,
+      v: 1, layout: 7, works: this.works, seasonClock: this.seasonClock, goods: this.goods, seed: this.seed, coins: this.coins, coinFrac: this.coinFrac, nextId: this.nextId,
       pondTime: this.pondTime, book: this.book, pairs: this.pairs, offers: this.offers, offerLeft: this.offerLeft,
       requests: this.requests, requestWait: this.requestWait, plants: this.plants, popped: this.popped, shows: this.shows,
       lots: this.lots, stats: this.stats, goal: this.goal, gate: this.gate, cam: { x: this.cam.x, y: this.cam.y },
-      koi: this.koi.map(function (k) {
+      koi: this.koi.filter(function (k) { return !k.wild; }).map(function (k) {   // a wild koi not yet welcomed is not kept
         return { id: k.id, name: k.name, genes: k.genes, seed: k.seed, sizePot: k.sizePot, growth: k.growth, full: k.full,
-                 bond: k.bond, temper: k.temper, pond: k.pond };
+                 bond: k.bond, temper: k.temper, pond: 'home' };
       }),
       pads: this.pads.map(function (p) {
         return { x: p.x / AW, y: p.y / AH, k: p.k, rot: p.rot, flower: p.flower, lotus: !!p.lotus, tone: p.tone, grow: p.grow || 0, ripe: !!p.ripe };
@@ -2307,35 +2535,36 @@
     g.plants = d.plants || []; g.popped = d.popped || 0;
     g.goods = d.goods || {};
     g.shows = d.shows || {};
-    if (d.lots) {
-      g.lots = {};
-      Object.keys(d.lots).forEach(function (id) { if (areaById(id) && KINDS[d.lots[id].kind]) g.lots[id] = d.lots[id]; });
-    } else if (d.unlocked) {
-      // a garden from when the plots had fixed uses: the same things, on the plots where they now belong
-      var OLD = { reach: ['p32', 'pond'], willow: ['p12', 'pond'], deep: ['p21', 'pond'], zen: ['p13', 'zen'], moss: ['p11', 'moss'], bamboo: ['p31', 'bamboo'], tea: ['p33', 'tea'] };
-      Object.keys(d.unlocked).forEach(function (id) { if (OLD[id]) g.lots[OLD[id][0]] = { kind: OLD[id][1], level: 1, till: 0 }; });
-    }
-    g.lots.home = g.lots.home || { kind: 'pond', level: 1, till: 0 };
-    g.lots.market = g.lots.market || { kind: 'market', level: 1, till: 0 };
-    g.unlocked = {};
-    Object.keys(g.lots).forEach(function (id) { g.unlocked[id] = true; });
     if (d.stats) Object.keys(d.stats).forEach(function (k) { g.stats[k] = d.stats[k]; });
     if (d.gate && d.gate.level >= 1 && d.gate.level <= GATE.caps.length) g.gate = { till: d.gate.till || 0, level: d.gate.level };
     g.goal = d.goal || 0;
-    if (d.layout !== 6) {
-      // the garden has been laid out afresh since this was saved. The koi, the coins and the Koi Book come across;
-      // the ponds and buildings are handed back as coins to open again in the new garden.
-      var back = 0;
-      Object.keys(g.lots).forEach(function (id) { if (id !== 'home' && id !== 'market') back += 400; });
-      g.lots = { home: { kind: 'pond', level: 1, till: 0 }, market: { kind: 'market', level: 1, till: 0 } };
-      g.unlocked = { home: true, market: true };
+    g.seasonClock = d.seasonClock || 0;
+    if (d.layout === 7) {
+      var L = d.lots || {};
+      g.lots = { home: { kind: 'pond', level: clamp((L.home && L.home.level) | 0, 1, 4), till: 0 } };
+      if (L.tea) g.lots.tea = { kind: 'tea', level: clamp(L.tea.level | 0, 1, 3), till: L.tea.till || 0 };
+      g.works = { falls: !!(d.works && d.works.falls), bridge: !!(d.works && d.works.bridge) };
+    } else {
+      // the garden has become one lake since this was saved. The koi, the coins, the Koi Book and the shows
+      // come across. Pond sections become a bigger lake; everything else built is handed back as coins.
+      var back = 0, homeN = 0, tea = false;
+      Object.keys(d.lots || {}).forEach(function (id) {
+        var lot = d.lots[id];
+        if (id === 'home' || id === 'market') return;
+        if (lot.kind === 'pond' && /^p(2|3)(2|3)$/.test(id) && d.layout === 6) homeN++;
+        else if (lot.kind === 'tea' && !tea) tea = true;
+        else back += 400;
+      });
+      g.lots = { home: { kind: 'pond', level: clamp(1 + homeN, 1, 4), till: 0 } };
+      if (tea) g.lots.tea = { kind: 'tea', level: 1, till: 0 };
+      (d.plants || []).forEach(function (pl) { if (PLANTS[pl.type]) back += PLANTS[pl.type].cost; });
       g.coins += back;
       g.plants = []; d.pads = [];
-      d.cam = null;
-      g.cam.x = SHAPES.home.cx - W / 2; g.cam.y = SHAPES.home.cy - H / 2;
+      g.goal = 0;
     }
+    g.unlocked = {};
+    Object.keys(g.lots).forEach(function (id) { g.unlocked[id] = true; });
     g._buildField();
-    if (d.cam) { g.cam.x = d.cam.x; g.cam.y = d.cam.y; }
     g._clampCam(); g._syncGrid();
     g.plants = g.plants.filter(function (pl) { return PLANTS[pl.type]; });
     g.plants.forEach(function (pl) {
@@ -2352,7 +2581,7 @@
       var s = d.koi[i];
       var k = { id: s.id, name: s.name, genes: s.genes, seed: s.seed, sizePot: s.sizePot, growth: s.growth, full: s.full,
                 bond: s.bond || 0, temper: s.temper === undefined ? s.id % TEMPERS.length : s.temper,
-                pond: biomeById(s.pond) && g.sections(s.pond) ? s.pond : 'home' };
+                pond: 'home' };
       g.koi.push(k);
       g._embody(k);
     }
@@ -2362,14 +2591,15 @@
                     bob: 0, tx: 0, ty: 0, flower: p.flower, lotus: !!p.lotus, tone: p.tone, grow: p.grow || 0, ripe: !!p.ripe });
     }
     for (i = 0; i < 3; i++) if (!g.requests[i] && g.requestWait[i] <= 0) g.requests[i] = g._newRequest();
-    if (d.layout !== 6 && !g.pads.length) { g.addPad(true, false, areaById('home')); g.addPad(true, true, areaById('home')); }
+    if (!g.pads.length) { g.addPad(true, false, AREAS[0]); g.addPad(true, true, AREAS[0]); }
     g._placeCat();
+    g._seasonWas = g.season().i;
     g._constrain();
     return g;
   };
 
   var api = { Game: Game, T: T, DT: DT, AREAS: AREAS, AW: AW, AH: AH, COLS: COLS, ROWS: ROWS, areaById: areaById,
-              SHAPES: SHAPES, outline: outline, blobPoint: blobPoint, GOODS: GOODS, CROP: CROP, KINDS: KINDS, LEVEL: LEVEL, STATIONS: STATIONS, GATE: GATE, LAKE: LAKE, THEMES: THEMES, THEME_NAMES: THEME_NAMES, themeOf: themeOf, BIOMES: BIOMES, biomeById: biomeById, STARS: STARS, GOALS: GOALS, SHOWS: SHOWS, areaAt: areaAt, GATES: GATES, PATHS: PATHS, WALL: WALL, inBlob: inBlob, PLANTS: PLANTS, TEMPERS: TEMPERS, STAGES: STAGES, VARIETIES: VARIETIES,
+              SHAPES: SHAPES, outline: outline, blobPoint: blobPoint, GOODS: GOODS, CROP: CROP, KINDS: KINDS, LEVEL: LEVEL, STATIONS: STATIONS, GATE: GATE, LAKE: LAKE, LAKE_CAP: LAKE_CAP, LAKE_COST: LAKE_COST, WORKS: WORKS, ISLE: ISLE, SEASONS: SEASONS, lakeD: lakeD, THEMES: THEMES, THEME_NAMES: THEME_NAMES, themeOf: themeOf, BIOMES: BIOMES, biomeById: biomeById, STARS: STARS, GOALS: GOALS, SHOWS: SHOWS, areaAt: areaAt, GATES: GATES, PATHS: PATHS, WALL: WALL, inBlob: inBlob, PLANTS: PLANTS, TEMPERS: TEMPERS, STAGES: STAGES, VARIETIES: VARIETIES,
               outcomes: outcomes, bondWord: bondWord, BASES: BASES, PATTERNS: PATTERNS, SECONDS: SECONDS, BOOK_TOTAL: BOOK_TOTAL,
               phenotype: phenotype, varietyName: varietyName, varietyKey: varietyKey, rarity: rarity,
               inherit: inherit, randomGenes: randomGenes, stageOf: stageOf,

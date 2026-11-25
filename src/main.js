@@ -31,12 +31,10 @@
     requests: { title: 'Requests' },
     shows: { title: 'Koi shows' },
     garden: { title: 'Garden shop' },
-    map: { title: 'Map' },
-    build: { title: 'Build' },
-    move: { title: 'Move to another pond' },
+    plans: { title: 'Lake works' },
     menu: { title: 'Menu' }
   };
-  var ORDER = ['koi', 'map', 'requests', 'shows', 'sell', 'dealer', 'garden', 'menu'];
+  var ORDER = ['koi', 'plans', 'requests', 'shows', 'sell', 'dealer', 'garden', 'menu'];
   var COIN = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#dcbc5e" stroke="#a8873a"/></svg>';
   var ICON = {
     food: '<svg viewBox="0 0 24 24" stroke="none" fill="#dcc08a"><circle cx="8" cy="9" r="2.6"/><circle cx="15.5" cy="8" r="2.1"/><circle cx="12.5" cy="15.5" r="2.9"/></svg>',
@@ -46,9 +44,8 @@
   var VIEW_W = 1280, VIEW_H = 800;
   function size() {
     SW = Math.max(50, window.innerWidth); SH = Math.max(50, window.innerHeight);
-    // a Steam Deck sees the world at full size; a phone sees it smaller so the koi are not giants
-    // the screen shows the middle 1280 x 800 of a plot, scaled to cover it: on a Steam Deck that is one to one
-    zoom = Math.max(SW / VIEW_W, SH / VIEW_H);
+    // the whole garden fits on the screen, whatever its shape; anything left over is the woods beyond the wall
+    zoom = Math.min(SW / S.AW, SH / S.AH);
   }
   /* Zoom in or out, keeping the point of the garden under (sx, sy) on the screen where it is. */
   var baseZoom = 1, userZoom = 1, ZOOM_KEY = SAVE_KEY + '-zoom';
@@ -91,7 +88,7 @@
       fresh = false;
     }
     if (away) showAway(away);
-    else if (isNew) toast('Tap the water to drop some food. Swipe down to visit the Market.');
+    else if (isNew) toast('Tap the water to drop some food. Everything else is done at the stalls and stands around the lake.');
     setHand(hand);
     setWatch(false);
     stir();
@@ -231,10 +228,10 @@
     $('gatepill').className = 'pill small glass' + (gfull ? ' full' : '');
     put($('gatepill'), 'Gate ' + Math.floor(game.gate.till) + ' / ' + gcap + (gfull ? ' · full' : ''));
     $('gatepill').hidden = game.gate.till < 0.8 * gcap;
-    if (game.gate.till >= 1 && !hinted.gate) { hinted.gate = 1; toast('Guests pay at the ticket gate in the Market. Go there to collect.'); }
+    if (game.gate.till >= 1 && !hinted.gate) { hinted.gate = 1; toast('Guests pay at the ticket gate, bottom right. Tap it to collect.'); }
     var st = game.stars(), stars = '';
     for (i = 0; i < 5; i++) stars += i < st ? '★' : '☆';
-    $('stars').textContent = stars + '  ' + game.visitors.length + ' guests';
+    $('stars').textContent = stars + '  ' + game.season().name + ' · ' + game.visitors.length + ' guests';
     var gl = game.goalNow(), done = game.goalDone();
     $('goal').hidden = !gl;
     if (gl) { $('goal').className = 'pill small glass' + (done ? ' done' : ''); put($('goal'), (done ? 'Done: ' : 'Next: ') + gl.text + (done ? ' · tap for ' : ' · ') + price(gl.reward)); }
@@ -242,84 +239,9 @@
     $('basket').hidden = !game.goodsWorth() && !ripe;
     $('basket').textContent = game.goodsWorth() ? 'Basket ' + game.goodsWorth() : ripe + ' ready to pick';
   }
-  /* Each plot is a room that fills the screen. A swipe, an arrow, an arrow key or a flick of the right stick
-     goes to the plot next door. You can go to any plot you have built on, or could build on. */
-  function roomOf() { return game.areaUnder(game.cam.x + game.W / 2, game.cam.y + game.H / 2); }
-  function navigable(a) { return !!a && (!!game.lots[a.id] || game.reachable(a.id)); }
-  // on a narrow screen a plot is wider than the view, so the view may slide this far inside it before the next plot
-  function rangeX() { return Math.max(0, VIEW_W / 2 - game.W / 2); }
-  function rangeY() { return Math.max(0, VIEW_H / 2 - game.H / 2); }
-  function clampN(v, lim) { return v < -lim ? -lim : v > lim ? lim : v; }
-  function goRoom(a, fromX, fromY) {
-    var sh = S.SHAPES[a.id], rx = rangeX(), ry = rangeY();
-    game.glide(sh.cx + clampN(fromX || 0, rx) - game.W / 2, sh.cy + clampN(fromY || 0, ry) - game.H / 2);
-  }
-  /* Let the view come to rest: inside the plot it started in, or on the next one if it was pulled far enough. */
-  function settle(from) {
-    var a = from || roomOf(), sh = S.SHAPES[a.id], rx = rangeX(), ry = rangeY();
-    var ox = game.cam.x + game.W / 2 - sh.cx, oy = game.cam.y + game.H / 2 - sh.cy, px = Math.abs(ox) - rx, py = Math.abs(oy) - ry, nb = null;
-    if (px > game.W * 0.14 && px >= py) nb = areaAt(a.col + (ox > 0 ? 1 : -1), a.row);
-    else if (py > game.H * 0.14) nb = areaAt(a.col, a.row + (oy > 0 ? 1 : -1));
-    if (nb && navigable(nb)) {
-      // arrive at the near side of the new plot
-      goRoom(nb, nb.col !== a.col ? (ox > 0 ? -rx : rx) : ox, nb.row !== a.row ? (oy > 0 ? -ry : ry) : oy);
-      A.ui('hand');
-    } else goRoom(a, ox, oy);
-    drawNav();
-  }
-  function page(dc, dr) {
-    var a = roomOf(), nb = areaAt(a.col + dc, a.row + dr);
-    if (!navigable(nb)) return false;
-    goRoom(nb, 0, 0); A.ui('hand');
-    return true;
-  }
-  /* While a finger drags the view: it follows, but will not go far toward a plot you cannot visit. */
-  var dragRoom = null;
-  /* Dragging moves the view freely, and when you let go it carries on a little and eases to a stop. */
-  var drift = { x: 0, y: 0, at: 0, on: false };
-  function dragView(dx, dy) {
-    var now = performance.now(), ms = Math.max(4, Math.min(80, now - drift.at));
-    game.panBy(dx, dy);
-    // how fast the view is moving, in world pixels a second, smoothed over the last few moves
-    drift.x += (dx / ms * 1000 - drift.x) * 0.45; drift.y += (dy / ms * 1000 - drift.y) * 0.45;
-    drift.at = now; drift.on = false;
-  }
-  function letGo() {
-    // a finger that paused before lifting leaves the view still
-    if (performance.now() - drift.at > 90) { drift.x = drift.y = 0; return; }
-    var sp = Math.hypot(drift.x, drift.y), cap = 2600;
-    if (sp > cap) { drift.x *= cap / sp; drift.y *= cap / sp; }
-    drift.x *= 0.75; drift.y *= 0.75;                 // a soft carry, not a throw
-    drift.on = sp > 40;
-  }
-  function stepDrift(dt) {
-    if (!drift.on) return;
-    if (game.camTo) { drift.on = false; return; }   // an arrow or a station has taken the view somewhere on purpose
-    if (dt < 0.002) return;                          // nothing to do in a frame that took no time
-    var bx = game.cam.x, by = game.cam.y;
-    game.panBy(drift.x * dt, drift.y * dt);
-    var k = Math.exp(-dt * 5);
-    drift.x *= k; drift.y *= k;
-    // spent, or up against the edge of the garden
-    if (Math.hypot(drift.x, drift.y) < 12 || (game.cam.x === bx && game.cam.y === by)) drift.on = false;
-  }
-  var NAV = { l: [-1, 0, 'navL'], r: [1, 0, 'navR'], u: [0, -1, 'navU'], d: [0, 1, 'navD'] };
-  function navTo(dir) {
-    var n = NAV[dir], f = roomOf();
-    return areaAt(f.col + n[0], f.row + n[1]);
-  }
-  function navState(dir) {
-    var nb = navTo(dir);
-    return !navigable(nb) ? '' : game.lots[nb.id] ? 'go' : 'locked';
-  }
-  function drawNav() {
-    for (var dir in NAV) {
-      var el = $(NAV[dir][2]), st = sheet || placing ? '' : navState(dir);
-      el.hidden = !st;
-      el.className = 'nav glass' + (st === 'locked' ? ' locked' : '');
-    }
-  }
-  function nav(dir) { page(NAV[dir][0], NAV[dir][1]); }
+  /* The view never moves: the whole garden is on the screen. The old edge arrows stay hidden. */
+  function drawNav() { ['navL', 'navR', 'navU', 'navD'].forEach(function (id) { $(id).hidden = true; }); }
+  function nav() {}
 
   /* ---------- sheets ---------- */
   function openSheet(name) {
@@ -352,14 +274,13 @@
     koi: function () {
       var h = '', list = game.koi.slice().sort(function (a, b) { return b.growth - a.growth; }), i;
       for (i = 0; i < list.length; i++) {
-        var k = list[i], pr = game.pairOf(k.id), sub = kind(k) + ' · ' + game.stage(k) + (game.pondsOpen() > 1 ? ' · ' + S.biomeById(k.pond).name : '');
+        var k = list[i], pr = game.pairOf(k.id), sub = kind(k) + ' · ' + game.stage(k) + (k.wild ? ' · wild, not yet welcomed' : '');
         if (pick && pick !== k && !game.canPair(pick, k)) sub += ' · <span style="color:#dcbc5e">can pair with ' + pick.name + '</span>';
         if (pr) sub += ' · ' + (pr.waiting ? 'waiting for room' : 'fry in ' + wait(pr.left));
         h += '<div class="row click" data-act="select" data-id="' + k.id + '">' + swatch(k.genes, !game.revealed(k)) +
           '<div class="grow"><div>' + k.name + '</div><div class="sub">' + sub + '</div></div><div class="num">' + game.value(k) + '</div></div>';
       }
-      var rooms = S.BIOMES.filter(function (b) { return game.sections(b.id); }).map(function (b) { return b.name + ' ' + game.pondCount(b.id) + ' of ' + game.pondCap(b.id); }).join(' · ');
-      return h + '<p class="muted">Tap a koi to find it. ' + rooms + '.</p>';
+      return h + '<p class="muted">Tap a koi to see it. ' + game.koi.length + ' of ' + game.capacity() + ' places in the lake taken.</p>';
     },
     book: function () {
       var h = '<p class="muted">' + game.bookCount() + ' of ' + S.BOOK_TOTAL + ' found.</p><div class="book">', i;
@@ -426,7 +347,7 @@
           h += '<div class="acts">';
           for (n = 0; n < ents.length; n++) h += '<button class="gold" data-act="enter" data-show="' + s.id + '" data-koi="' + ents[n].id + '">Enter ' + ents[n].name + '</button>';
           h += '</div>';
-          if (!ents.length) h += '<p class="sub">None of your koi fits yet. Breed for it, raise it, and carry it to the right pond.</p>';
+          if (!ents.length) h += '<p class="sub">None of your koi fits yet. Breed for it and raise it.</p>';
         }
         h += '</div>';
       }
@@ -447,9 +368,9 @@
         var so = game.offers[shopSel], cm = Math.round(game._len(so) / game.fishBase * 62);
         h += '<div class="grow"><div>' + S.varietyName(so.genes) + '</div><div class="sub">Young · ' + cm + ' cm · grown in about ' + wait(T.growAdult - so.growth) + '</div></div>' +
           '<button class="gold" data-act="buy" data-id="' + shopSel + '"' + (game.coins < so.price || !game.roomFor(so.genes, so.growth) ? ' disabled' : '') + '>Take home ' + price(so.price) + '</button>';
-        if (!game.roomFor(so.genes, so.growth)) h += '</div><div class="counter"><div class="grow sub">No pond that would take this koi has room. Make a pond bigger, or open one that suits it.</div>';
+        if (!game.roomFor(so.genes, so.growth)) h += '</div><div class="counter"><div class="grow sub">The lake is full. Dig it bigger at Lake works.</div>';
       } else {
-        h += '<div class="grow muted">' + (room ? 'Tap a tank to look closer. New koi arrive in ' + wait(game.offerLeft) + '.' : 'Your pond is full. Open more water from the Map.') + '</div>';
+        h += '<div class="grow muted">' + (room ? 'Tap a tank to look closer. New koi arrive in ' + wait(game.offerLeft) + '.' : 'The lake is full. Dig it bigger at Lake works.') + '</div>';
       }
       return h + '</div>';
     },
@@ -470,54 +391,22 @@
       }
       return h;
     },
-    map: function () {
+    plans: function () {
+      var lake = game.lots.home, up = game.upgradeCost('home'), h, id;
+      h = '<p class="muted">Make the lake bigger, and build around it. You have ' + game.coins + ' coins.</p>';
+      h += '<div class="row"><div class="grow"><div>A bigger lake <span class="muted">· ' + lake.level + ' of 4</span></div><div class="sub">' +
+        (up ? 'Dig the banks back. Room for ' + S.LAKE_CAP[lake.level] + ' koi instead of ' + game.capacity() + '.' : 'The lake is as big as it can be: room for ' + game.capacity() + ' koi.') + '</div></div>' +
+        (up ? '<button class="gold" data-act="lakeup"' + (game.coins < up ? ' disabled' : '') + '>' + price(up) + '</button>' : '<button disabled>Done</button>') + '</div>';
+      for (id in S.WORKS) {
+        var w = S.WORKS[id], have = game.hasWork(id);
+        h += '<div class="row"><div class="grow"><div>' + w.name + (have ? ' <span class="muted">· built</span>' : '') + '</div><div class="sub">' + w.note + '</div></div>' +
+          (have ? '<button disabled>Built</button>' : '<button class="gold" data-act="work" data-work="' + id + '"' + (game.coins < w.cost ? ' disabled' : '') + '>' + price(w.cost) + '</button>') + '</div>';
+      }
+      var gup = game.gateUpgradeCost();
+      h += '<div class="row"><div class="grow"><div>A bigger cash box <span class="muted">· holds ' + game.gateCap() + '</span></div><div class="sub">The ticket gate keeps more of the takings before it is full.</div></div>' +
+        (gup ? '<button class="gold" data-act="gateup"' + (game.coins < gup ? ' disabled' : '') + '>' + price(gup) + '</button>' : '<button disabled>Biggest</button>') + '</div>';
       var st = game.stars(), rn = game.renown(), next = S.STARS[st];
-      var h = '<p class="muted">Six ponds, each opened a section at a time, and the street along the bottom. Finish all four sections of a pond to unlock the next. Tap a square to go there.</p><div class="plan">', r, c;
-      function lockNote(pond) {
-        for (var i = 1; i < S.BIOMES.length; i++) if (S.BIOMES[i].id === pond) return 'After the ' + S.BIOMES[i - 1].name + ' (' + game.sections(S.BIOMES[i - 1].id) + '/4)';
-        return '';
-      }
-      for (r = 0; r < S.ROWS; r++) for (c = 0; c < S.COLS; c++) {
-        var a = areaAt(c, r), lot = game.lots[a.id], can = !lot && game.reachable(a.id);
-        h += '<button data-act="lot" data-area="' + a.id + '" class="' + (lot ? 'k-' + lot.kind : can ? 'free' : 'far') + (a.biome ? ' b-' + a.biome : '') + '"' + (lot || can ? '' : ' disabled') + '>' +
-          (lot ? '<b>' + (lot.kind === 'pond' ? S.THEME_NAMES[S.themeOf(a.id)] : S.KINDS[lot.kind].name) + '</b><span>' + (lot.kind === 'pond' ? (a.first ? game.pondCount(a.biome) + ' of ' + game.pondCap(a.biome) + ' koi' : '') : 'Level ' + lot.level) +
-            (game.tillCap(a.id) ? ' · ' + Math.floor(lot.till) + ' in till' : '') + '</span>' : can ? '<b>+</b><span>' + (a.biome ? S.THEME_NAMES[a.biome] : 'Build') + '</span>' : a.biome ? '<span>' + S.THEME_NAMES[a.biome] + (a.first && game.pondLocked(a.biome) ? '<br>🔒 ' + lockNote(a.biome) : '') + '</span>' : '') + '</button>';
-      }
-      return h + '</div>';
-    },
-    build: function () {
-      var area = S.areaById(buildId), h, kind;
-      if (area.biome) {
-        var bio = S.biomeById(area.biome), cost = game.buildCost(buildId, 'pond'), n = game.sections(area.biome);
-        h = '<p>' + (n ? 'Open another section of the ' + bio.name + '. The water runs together into one bigger pond, with room for 6 more koi.'
-                       : 'Open the ' + bio.name + '. It starts with room for 6 koi, and has four sections in all.') + '</p>' +
-          '<p class="muted">' + (bio.bases ? 'Only ' + game.likes(area.biome) + ' koi can live here. Carry them over from another pond once their colours are in.' : 'Any koi can live here.') + '</p>' +
-          '<div class="acts"><button class="gold" data-act="build" data-kind="pond"' + (game.canBuild(buildId, 'pond') ? ' disabled' : '') + '>' + (n ? 'Open this section ' : 'Open the pond ') + price(cost) + '</button></div>' +
-          '<p class="sub" style="margin-top:8px">You have ' + game.coins + ' coins.</p>';
-        return h;
-      }
-      h = '<p class="muted">What should stand here on the street? You have ' + game.coins + ' coins.</p>';
-      for (kind in S.KINDS) {
-        var kd = S.KINDS[kind];
-        if (kd.fixed || kd.retired || kind === 'pond') continue;
-        var c2 = game.buildCost(buildId, kind), have = game.built(kind);
-        h += '<div class="row"><div class="grow"><div>' + kd.name + (have ? ' <span class="muted">· you have ' + have + '</span>' : '') + '</div><div class="sub">' + kd.note +
-          (kd.pay ? ' About ' + kd.pay + ' coins a guest.' : '') + '</div></div>' +
-          '<button class="gold" data-act="build" data-kind="' + kind + '"' + (game.coins < c2 ? ' disabled' : '') + '>' + price(c2) + '</button></div>';
-      }
-      return h;
-    },
-    move: function () {
-      var k = selected, h, i;
-      if (!k || game.koi.indexOf(k) < 0) return '<p class="muted">Choose a koi first.</p>';
-      h = '<p class="muted">' + k.name + ' is a ' + kind(k).toLowerCase() + ', living in the ' + S.biomeById(k.pond).name + '.</p>';
-      for (i = 0; i < S.BIOMES.length; i++) {
-        var b = S.BIOMES[i], open = game.sections(b.id), why = game.canMove(k, b.id);
-        if (b.id === k.pond) continue;
-        h += '<div class="row"><div class="grow"><div>' + b.name + (open ? ' <span class="muted">· ' + game.pondCount(b.id) + ' of ' + game.pondCap(b.id) + '</span>' : '') + '</div>' +
-          '<div class="sub">' + (why || (b.bases ? 'For ' + game.likes(b.id) + ' koi.' : 'Any koi may live here.')) + '</div></div>' +
-          '<button class="gold" data-act="moveto" data-pond="' + b.id + '"' + (why ? ' disabled' : '') + '>Move</button></div>';
-      }
+      h += '<p class="sub" style="margin-top:10px">Renown ' + rn + (next ? ' · ' + (next - rn) + ' more for ' + (st + 1) + ' stars' : ' · five stars') + '. Everything built here makes the garden better known, and more stars bring more guests.</p>';
       return h;
     },
     menu: function () {
@@ -537,15 +426,14 @@
         ? '<p style="margin-top:14px">This clears your koi, coins and garden for good.</p><div class="acts"><button data-act="newyes">Clear it and start again</button><button class="gold" data-act="newno">Keep my pond</button></div>'
         : '<div class="acts" style="margin-top:14px"><button data-act="newpond">Start a new pond</button></div>';
       h += '<h3>How to play</h3>' +
-        '<p><b>Feed</b> (bottom left): tap the water to drop food, or hold still and a koi that trusts you will eat from your hand. Drag to look around; the view stays where you leave it.</p>' +
+        '<p><b>Feed</b> (bottom left): tap the water to drop food, drag to scatter a trail, or hold still and a koi that trusts you will eat from your hand.</p>' +
         '<p><b>Play</b>: tap for a pebble, drag for ripples, and drag across the Zen Garden to rake the sand.</p>' +
         '<p><b>Watch</b> (bottom of the screen) is for sitting back: a caretaker feeds the koi and brings in the takings, more slowly than you, and keeps a quarter. Leave the screen alone and everything but the garden fades.</p>' +
-        '<p>The Koi book and the Map stand by the Home Pond. Selling, buying koi, requests, koi shows and the garden shop are all at the Market, one swipe down.</p>' +
-        '<p>There are six ponds, and none joins another. Each grows in four sections, and the next pond only opens once every section of the one before it is built. Each takes only koi of its own colours, so breed for them and carry them over: tap a koi, then Move.</p>' +
-        '<p>Tap open ground beside what you own to build on it. Tap a building to take the coins guests have left, or to upgrade it. </p>' +
-        '<p>Guests pay at the ticket gate in the Market and throw food to the koi. The gate only holds so much: go and collect it, and upgrade it to hold more.</p>' +
+        '<p>Everything is on one screen. The stands on the banks hold your Koi book, requests, koi shows and Lake works; the stalls along the bottom sell, buy and plant.</p>' +
+        '<p>The year turns while you sit here, a season every few minutes, and something is always dropping by: herons to shoo, a turtle for luck, ducks, petals on the wind, lanterns at night, and now and then a wild koi from the stream. Tap it to welcome it before it swims off.</p>' +
+        '<p>Lake works digs the lake bigger and builds the tea house, a waterfall and a bridge to the island. Tap the tea house to take what guests leave in its till.</p>' +
+        '<p>Guests pay at the ticket gate and throw food to the koi. The gate only holds so much: go and collect it, and upgrade it to hold more.</p>' +
         '<p>Tap a koi to see it, pair it or sell it. Tap a plant that glints to pick what it has grown, then sell it at the Market.</p>' +
-        '<p>The arrows at the edge of the screen, two fingers, the arrow keys and the right stick also move the view. </p>' +
         '<p class="sub">' + L.label + (pr > 1.05 ? '. While you are here the pond runs ' + (Math.round(pr * 10) / 10) + ' times faster.' : '. The pond is resting.') + '</p>';
       return h;
     }
@@ -601,7 +489,7 @@
     var cm = Math.round(k.len / game.fishBase * 62);
     var h = XBTN + '<h2>' + k.name + '</h2><p>' + kind(k) + '</p>' +
       '<p class="muted">' + st + ' · ' + cm + ' cm · ' + fedWord(k) + '</p>' +
-      '<p class="muted">' + S.TEMPERS[k.temper].name + ' · ' + S.bondWord(k.bond) + (game.pondsOpen() > 1 ? ' · ' + S.biomeById(k.pond).name : '') + '</p>';
+      '<p class="muted">' + S.TEMPERS[k.temper].name + ' · ' + S.bondWord(k.bond) + '</p>';
     var note = '', acts = '';
     if (pr) {
       var other = game.byId(pr.a === k.id ? pr.b : pr.a);
@@ -624,16 +512,14 @@
       }
       acts += '<button class="gold" data-act="pair"' + (why ? ' disabled' : '') + '>Pair with ' + pick.name + '</button>';
     } else if (pick === k) {
-      var ms = mates() || [], here = roomOf(), near = ms.filter(function (m) { return game.pondNear(m.x, m.y).id === here.id; }).length;
+      var ms = mates() || [];
       note = !ms.length ? 'No other koi is grown and free to pair yet.'
-        : 'Tap one of the ' + (ms.length === 1 ? 'koi' : ms.length + ' koi') + ' with a gold ring to pair with ' + k.name + '.' +
-          (near < ms.length ? ' ' + (ms.length - near) + ' of them ' + (ms.length - near === 1 ? 'is' : 'are') + ' in another pond.' : '');
+        : 'Tap one of the ' + (ms.length === 1 ? 'koi' : ms.length + ' koi') + ' with a gold ring to pair with ' + k.name + '.';
       acts += '<button data-act="unpick">Never mind</button>';
     } else {
       acts += '<button data-act="pick">Pair</button>';
     }
     var block = game.canSell(k);
-    if (game.pondsOpen() > 1 && !pr && pick !== k) acts += '<button data-act="movekoi">Move</button>';
     acts += '<button data-act="sell"' + (block ? ' disabled' : '') + '>Sell ' + price(game.value(k)) + '</button>';
     if (block && !note) note = block;
     h += '<div class="acts">' + acts + '</div>' + (note ? '<p class="note">' + note + '</p>' : '');
@@ -690,10 +576,8 @@
     else if (act === 'closecard') { selected = null; selItem = null; selLot = null; selGate = false; }
     else if (act === 'gatecollect') game.collectGate();
     else if (act === 'gateup') game.upgradeGate();
-    else if (act === 'gogate') { selGate = false; goRoom(S.areaById('market'), 0, 0); }
     else if (act === 'select') {
       k = game.byId(id); closeSheet(); select(k);
-      if (k) game.glide(k.x - game.W / 2, k.y - game.H / 2);
     }
     else if (act === 'buy') { if (game.buy(id)) shopSel = -1; }
     else if (act === 'tank') { shopSel = id; A.ui('select'); }
@@ -703,26 +587,16 @@
     else if (act === 'doneplace') { stopPlacing(); arranging = false; selItem = null; drawPlace(); }
     else if (act === 'moveitem') { if (itemRef()) startPlacing(game.itemType(selItem), selItem); }
     else if (act === 'putaway') { if (itemRef()) { game.removeItem(selItem); selItem = null; } }
-    else if (act === 'lot') {
-      var lid = el.getAttribute('data-area');
-      closeSheet(); game.lookAt(lid);
-      if (game.lots[lid]) { selected = null; selItem = null; selGate = false; selLot = lid; }
-      else { buildId = lid; openSheet('build'); }
-    }
-    else if (act === 'build') { if (game.build(buildId, el.getAttribute('data-kind'))) { closeSheet(); selected = null; selLot = buildId; } }
+    else if (act === 'lakeup') game.upgrade('home');
+    else if (act === 'work') game.buildWork(el.getAttribute('data-work'));
     else if (act === 'upgrade') { if (selLot) game.upgrade(selLot); }
     else if (act === 'collect') { if (selLot) game.collect(selLot); }
     else if (act === 'goal') { game.claimGoal(); }
-    else if (act === 'movekoi') { if (selected) openSheet('move'); }
-    else if (act === 'moveto') {
-      var mk = selected;
-      if (mk && game.move(mk.id, el.getAttribute('data-pond'))) { closeSheet(); game.glide(mk.x - game.W / 2, mk.y - game.H / 2); }
-    }
     else if (act === 'station') {                  // from the menu: go to a station and open it
       var sid = el.getAttribute('data-id'), sn = null;
       S.STATIONS.forEach(function (q) { if (q.id === sid) sn = q; });
       closeSheet();
-      if (sn) { goRoom(S.areaById(sn.lot), 0, 0); openSheet(sid); }
+      if (sn) openSheet(sid);
     }
     else if (act === 'give') { k = game.byId(+el.getAttribute('data-koi')); if (game.fulfil(id, k && k.id) && selected === k) selected = null; }
     else if (act === 'pass') game.passRequest(id);
@@ -770,10 +644,6 @@
     if (offer) { game.touch(); offered = true; }
     game.setHand(wx, wy, on, offer);
     if (on) game.sweep(wx, wy);
-    // arrow keys and WASD slide the view
-    var kx = (keys.ArrowRight || keys.d ? 1 : 0) - (keys.ArrowLeft || keys.a ? 1 : 0);
-    var ky = (keys.ArrowDown || keys.s ? 1 : 0) - (keys.ArrowUp || keys.w ? 1 : 0);
-    if ((kx || ky) && !sheet) game.panBy(kx * 16, ky * 16);
 
   }
   canvas.addEventListener('pointerleave', function () { mouse.on = false; });
@@ -784,21 +654,20 @@
     A.unlock(); padCursor(false); stir();
     try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
     pointers[e.pointerId] = p; nPointers++;
-    drift.on = false; drift.x = drift.y = 0;         // a new touch stops any glide
     if (nPointers >= 2) {                            // a second finger: both now move and zoom the view, nothing else
       pinch = 0;
       for (var id in pointers) { pointers[id].pan = true; pointers[id].rake = false; clearTimeout(pointers[id].wait); pointers[id].wait = 0; }
       mouse.down = false;
       return;
     }
-    if (e.button === 2 || e.button === 1) {          // right or middle button: cancel, or drag the view
-      if (placing) { stopPlacing(); return; }
-      p.pan = true; return;
+    if (e.button === 2 || e.button === 1) {          // right or middle button: cancel
+      if (placing) stopPlacing();
+      p.idle = true; mouse.down = false; return;
     }
     mouse.down = true;
     p.fed = 0; p.sx = p.x; p.sy = p.y; offered = false;
     if (hand === 'food' || placing || arranging) {
-      // feeding: a tap acts when the finger lifts, and a drag moves the view instead
+      // feeding: a tap acts when the finger lifts, so holding still can offer food from the hand
       p.defer = true;
     } else if (e.pointerType === 'touch') {
       // a finger waits a moment before it acts, in case a second finger is on its way to move the view
@@ -810,15 +679,8 @@
     var x = p.x / zoom + game.cam.x, y = p.y / zoom + game.cam.y;
     game.touch();
     if (placing) { setDown(x, y); p.idle = true; return; }
-    var inside = x >= 0 && y >= 0 && x <= S.COLS * S.AW && y <= S.ROWS * S.AH, area = game.areaUnder(x, y);
+    var inside = x >= 0 && y >= 0 && x <= S.AW && y <= S.AH;
     if (!inside) { p.idle = true; return; }
-    if (!game.lots[area.id]) {                       // open ground: offer to build on it
-      p.idle = true;
-      if (!S.inBlob(S.SHAPES[area.id], x, y)) return;
-      if (game.reachable(area.id)) { buildId = area.id; if (sheet !== 'build') openSheet('build'); }
-      else toast('Build beside what you already have first.');
-      return;
-    }
     if (arranging) {
       p.idle = true;
       selected = null; selItem = game.itemAt(x, y);
@@ -828,6 +690,7 @@
     }
     if (game.harvestAt(x, y)) { p.idle = true; refresh(); save(); return; }   // something ripe
     if (game.petCat(x, y)) { p.idle = true; return; }
+    if (game.tapHappening(x, y)) { p.idle = true; refresh(); save(); return; }   // a heron, a turtle, the ducks
     var stn = game.stationAt(x, y);
     if (stn && stn.id === 'gate') {                  // the ticket gate: fetch the takings, or look at it
       p.idle = true;
@@ -847,6 +710,7 @@
     if (game.onWater(x, y)) {
       if (game.sweep(x, y)) { p.idle = true; return; }            // a coin
       var f = game.fishAt(x, y);
+      if (f && f.wild) { p.idle = true; game.welcome(f.id); select(f); refresh(); save(); return; }   // a wild koi: it stays
       if (f) { p.idle = true; select(f); return; }                // a koi
     }
     if (selected && !pick) select(null);
@@ -863,11 +727,13 @@
     var cx = game.cam.x, cy = game.cam.y, z = zoom;
     var ax = q.x / z + cx, ay = q.y / z + cy, bx = p.x / z + cx, by = p.y / z + cy;
     if (q.wait) return;
-    if (q.defer && !q.pan) {
+    if (q.defer) {
+      // a tap that turned into a drag: food scatters along it instead (placing just follows the finger)
+      if (placing || arranging) { q.x = p.x; q.y = p.y; return; }   // it lands where the finger lifts
       if (Math.abs(p.x - q.sx) + Math.abs(p.y - q.sy) < 9 || offered) return;
-      q.pan = true;
+      q.defer = false; q.idle = false;
     }
-    if (q.pan) dragView((q.x - p.x) / z / Math.max(1, nPointers), (q.y - p.y) / z / Math.max(1, nPointers));
+    if (q.pan) { /* the view does not move */ }
     else if (q.idle) { /* that press already did its job */ }
     else if (q.rake || (hand === 'pebble' && game.onSand(bx, by))) {
       if (d < 3) return;
@@ -901,9 +767,9 @@
   window.addEventListener('mousemove', function () { padCursor(false); stir(); });
   function up(e) {
     var q = pointers[e.pointerId];
-    if (q && q.pan && nPointers <= 1) { dragRoom = null; letGo(); drawNav(); }   // the view eases to a stop and stays there
     if (q && q.wait) { clearTimeout(q.wait); q.wait = 0; if (!q.pan) press(q); }   // a quick tap
     if (q && q.defer && !q.pan && !offered) press(q);
+    else if (q && q.defer && placing && !q.pan) press(q);
     if (pointers[e.pointerId]) { delete pointers[e.pointerId]; nPointers = Math.max(0, nPointers - 1); }
     mouse.down = false;
     if (e.pointerType === 'touch') mouse.on = false;
@@ -917,7 +783,6 @@
     game.touch();
     var mp = pos(e);
     if (placing && !e.ctrlKey) placing.a += (e.deltaY > 0 ? 1 : -1) * Math.PI / 12;
-    else game.panBy((e.shiftKey ? e.deltaY : e.deltaX) / zoom, (e.shiftKey ? 0 : e.deltaY) / zoom);   // scroll or two-finger slide: move the view freely
   }, { passive: false });
 
   window.addEventListener('keyup', function (e) { keys[e.key] = false; });
@@ -929,7 +794,7 @@
     else if (e.key === ' ') { setHand(hand === 'food' ? 'pebble' : 'food'); e.preventDefault(); }
     else if (e.key === 'q' && placing) placing.a -= Math.PI / 12;
     else if (e.key === 'e' && placing) placing.a += Math.PI / 12;
-    else if (e.key === 'm') { openSheet('map'); drawCard(); }
+    else if (e.key === 'm') { openSheet('plans'); drawCard(); }
     else if (e.key === 'Tab') { openSheet('menu'); drawCard(); e.preventDefault(); }
     else if (e.key === 'Escape') back();
   });
@@ -969,9 +834,6 @@
     cur.y = Math.max(4, Math.min(SH - 4, cur.y + my * 640 * dt));
     cursorEl.style.transform = 'translate(' + (cur.x - 13) + 'px,' + (cur.y - 13) + 'px)';
     if (sheet) bodyEl.scrollTop += sy * 600 * dt;
-    else {
-      if (sx || sy) game.panBy(sx * 900 * dt, sy * 900 * dt);   // the right stick slides the view
-    }
 
     if (hit(0)) {
       var el = document.elementFromPoint(cur.x, cur.y);
@@ -1015,7 +877,6 @@
     var n = 0;
     pollPad(dt);
     trackHand();
-    stepDrift(dt);
     while (acc >= S.DT && n < 4) { game.step(); acc -= S.DT; n++; }
     if (acc > S.DT) acc = 0;
     while (game.cues.length) A.cue(game.cues.shift());
