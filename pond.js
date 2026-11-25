@@ -278,8 +278,37 @@
     { id: 'keepAll', name: 'Every colour', about: 'Keep every variety of koi, at one time or another.' },
     { id: 'bornFive', name: 'Pond-bred', about: 'Have five different varieties born in your pond.' },
     { id: 'bornAll', name: 'Born of the pond', about: 'Have every variety born in your pond.' },
-    { id: 'growAll', name: 'Master of koi', about: 'Grow every variety to full size.' }
+    { id: 'growAll', name: 'Master of koi', about: 'Grow every variety to full size.' },
+    { id: 'treasure', name: 'Finders keepers', about: 'Take a treasure from a koi.' },
+    { id: 'allTreasure', name: 'A full trove', about: 'Find one of every kind of treasure.' }
   ];
+
+  /* ---------- treasures ----------
+     Now and then a koi noses along the bottom and comes up with something in its mouth. It swims about with it
+     until you tap it and take it; treasures sell at the shop. w is how often each turns up; the rare ones turn up
+     more for bigger koi, who root deeper. */
+  var TREASURES = {
+    pebble: { name: 'Jade pebble', many: 'jade pebbles', value: 8, w: 30 },
+    shell:  { name: 'River shell', many: 'river shells', value: 12, w: 24 },
+    coin:   { name: 'Old copper coin', many: 'old copper coins', value: 20, w: 18 },
+    bead:   { name: 'Glass bead', many: 'glass beads', value: 30, w: 12 },
+    pearl:  { name: 'Freshwater pearl', many: 'freshwater pearls', value: 60, w: 6, rare: true },
+    ring:   { name: 'Gold ring', many: 'gold rings', value: 120, w: 3, rare: true },
+    frog:   { name: 'Jade frog', many: 'jade frogs', value: 220, w: 1.2, rare: true }
+  };
+  var TREASURE_ORDER = ['pebble', 'shell', 'coin', 'bead', 'pearl', 'ring', 'frog'];
+  var FIND_GAP = [50, 120];    // seconds between finds
+  var MAX_CARRY = 2;           // koi carrying something at once
+  /* What a koi of this size is likely to find: [{ kind, p }]. */
+  function findOdds(kt) {
+    var out = [], sum = 0, i;
+    for (i = 0; i < TREASURE_ORDER.length; i++) {
+      var t = TREASURES[TREASURE_ORDER[i]], w = t.w * (t.rare ? Math.max(0.5, kt) * Math.max(0.5, kt) : 1);
+      out.push({ kind: TREASURE_ORDER[i], p: w }); sum += w;
+    }
+    for (i = 0; i < out.length; i++) out[i].p /= sum;
+    return out;
+  }
 
   function Pond(W, H, seed) {
     this.rng = mulberry32(seed === undefined ? 1 : seed);
@@ -302,6 +331,9 @@
     this.bornCount = 0;
     this.breedTimer = 45;      // a first chance comes fairly soon; after that it is BREED_GAP
     this.basket = { cress: 0, chestnut: 0, lotus: 0 };
+    this.trove = {};           // treasure kind -> how many you are holding to sell
+    this.found = {};           // treasure kind -> how many ever found, for the koi book
+    this.findTimer = 30;       // the first find comes fairly soon
     this._makeGrid();
     this._sizes();
     var rng = this.rng, i;
@@ -348,7 +380,7 @@
     var f = { x: 0, y: 0, a: a, v: 0, turn: 0, wa: 0, phase: phase,
               k: k, len: 0, base: 0, mode: WANDER, timer: 0, t0: 1,
               fx: 0, fy: 0, tx: 0, ty: 0, variety: variety, look: VARIETIES[variety].look, idx: this.fish.length,
-              full: 0.3, notice: -1, chase: 0, cool: 0, target: null, glow: 0, kt: k };
+              full: 0.3, notice: -1, chase: 0, cool: 0, target: null, glow: 0, kt: k, carry: null };
     f.len = this.fishBase * f.k; f.base = f.len * 0.34; f.v = f.base;
     return f;
   };
@@ -483,6 +515,84 @@
     return { paid: paid, n: n };
   };
 
+  /* ---------- treasures ---------- */
+  Pond.prototype.carriers = function () { return this.fish.filter(function (f) { return f.carry; }); };
+  Pond.prototype._find = function (dt) {
+    this.findTimer -= dt;
+    if (this.findTimer > 0) return;
+    this.findTimer = FIND_GAP[0] + this.rng() * (FIND_GAP[1] - FIND_GAP[0]);
+    this.find();
+  };
+  /* A koi comes up from the bottom with something in its mouth. Returns the koi, or null if none can. */
+  Pond.prototype.find = function (f, kind) {
+    var rng = this.rng;
+    if (!f) {
+      if (this.carriers().length >= MAX_CARRY) return null;
+      var free = this.fish.filter(function (q) { return !q.carry && q.mode !== FLEE; });
+      if (!free.length) return null;
+      f = free[(rng() * free.length) | 0];
+    }
+    if (!kind) {
+      var odds = findOdds(f.kt), r = rng();
+      kind = odds[odds.length - 1].kind;
+      for (var i = 0; i < odds.length; i++) { r -= odds[i].p; if (r <= 0) { kind = odds[i].kind; break; } }
+    }
+    f.carry = kind;
+    var m = mouth(f);
+    this.grid.drop(this.gx(m.x), this.gy(m.y), 0.25);
+    for (var s = 0; s < 8; s++) {
+      var sa = rng() * 6.283, sv = 8 + rng() * 18;
+      this.sparks.push({ x: m.x, y: m.y, vx: Math.cos(sa) * sv, vy: Math.sin(sa) * sv, age: 0, life: 0.6 + rng() * 0.6 });
+    }
+    this._cue('find', m.x, 0.5);
+    return f;
+  };
+  /* The koi carrying something whose head is under (x, y), with plenty of give: they keep swimming. */
+  Pond.prototype.carrierAt = function (x, y) {
+    var best = null, bd = 1e9;
+    for (var i = 0; i < this.fish.length; i++) {
+      var f = this.fish[i];
+      if (!f.carry) continue;
+      var m = mouth(f), d = Math.min(Math.hypot(m.x - x, m.y - y), Math.hypot(f.x - x, f.y - y) * 1.2);
+      if (d < Math.max(34, f.len * 0.5) && d < bd) { bd = d; best = f; }
+    }
+    return best;
+  };
+  /* Take the treasure from the koi at (x, y). Returns { kind } or null. */
+  Pond.prototype.takeTreasureAt = function (x, y) {
+    var f = this.carrierAt(x, y);
+    if (!f) return null;
+    var kind = f.carry, m = mouth(f), rng = this.rng;
+    f.carry = null;
+    this.trove[kind] = (this.trove[kind] || 0) + 1;
+    var first = !this.found[kind];
+    this.found[kind] = (this.found[kind] || 0) + 1;
+    this._feat('treasure');
+    if (TREASURE_ORDER.every(function (k) { return this.found[k]; }, this)) this._feat('allTreasure');
+    if (first) this.news.push({ kind: 'treasure', id: kind });
+    this.pops.push({ x: m.x, y: m.y - 10, n: 1, treasure: kind, age: 0 });
+    for (var s = 0; s < 12; s++) {
+      var sa = rng() * 6.283, sv = 16 + rng() * 30;
+      this.sparks.push({ x: m.x, y: m.y, vx: Math.cos(sa) * sv, vy: Math.sin(sa) * sv, age: 0, life: 0.6 + rng() * 0.7 });
+    }
+    this.grid.drop(this.gx(m.x), this.gy(m.y), 0.3);
+    this.sinceTouch = 0;
+    f.glow = Math.max(f.glow, 0.6);
+    this._cue('treasure', m.x, clamp(TREASURES[kind].value / 220, 0, 1));
+    return { kind: kind };
+  };
+  Pond.prototype.troveCount = function () {
+    var n = 0; for (var k in this.trove) n += this.trove[k] || 0; return n;
+  };
+  Pond.prototype.sellTreasure = function (kind) {
+    var n = this.trove[kind] || 0;
+    if (!TREASURES[kind] || n <= 0) return { error: 'Nothing to sell.' };
+    var paid = n * TREASURES[kind].value;
+    this.trove[kind] = 0;
+    this.coins += paid;
+    return { paid: paid, n: n };
+  };
+
   /* ---------- saving ---------- */
   /* now: the wall-clock time in ms, so crops can keep growing while the page is closed. */
   /* ---------- the koi book ---------- */
@@ -579,9 +689,9 @@
   Pond.prototype.toState = function (now) {
     var W = this.W, H = this.H;
     return {
-      v: 1, t: now || 0, coins: this.coins, book: this.book, feats: this.feats, born: this.bornCount,
+      v: 1, t: now || 0, coins: this.coins, book: this.book, feats: this.feats, born: this.bornCount, trove: this.trove, found: this.found,
       basket: { cress: this.basket.cress || 0, chestnut: this.basket.chestnut || 0, lotus: this.basket.lotus || 0 },
-      fish: this.fish.map(function (f) { return { v: f.variety, k: +f.k.toFixed(4), kt: +f.kt.toFixed(4), full: +f.full.toFixed(3) }; }),
+      fish: this.fish.map(function (f) { var o = { v: f.variety, k: +f.k.toFixed(4), kt: +f.kt.toFixed(4), full: +f.full.toFixed(3) }; if (f.carry) o.c = f.carry; return o; }),
       pads: this.pads.map(function (p) { return { kind: p.kind, k: +p.k.toFixed(3), rot: +p.rot.toFixed(3), x: +(p.x / W).toFixed(4), y: +(p.y / H).toFixed(4), grow: +(p.grow || 0).toFixed(1) }; })
     };
   };
@@ -597,6 +707,7 @@
       var k = clamp(+fish[i].k, 0.3, K_MAX), f = this._newFish(fish[i].v, k, rng() * 6.283, rng() * 6.283);
       f.kt = clamp(isFinite(fish[i].kt) ? +fish[i].kt : k, k, K_MAX);
       f.full = clamp(+fish[i].full || 0, 0, 1.2);
+      if (TREASURES[fish[i].c]) f.carry = fish[i].c;
       this._placeFish(f);
     }
     var pads = s.pads.filter(function (p) { return p && PLANTS[p.kind] && isFinite(p.k); }).slice(0, MAX_PADS);
@@ -608,6 +719,12 @@
     }
     var b = s.basket || {};
     for (var kind in PRODUCE) this.basket[kind] = Math.max(0, Math.floor(+b[kind] || 0));
+    this.trove = {}; this.found = {};
+    for (var tk in TREASURES) {
+      var tn = Math.max(0, Math.floor(+(s.trove || {})[tk] || 0)), fn = Math.max(0, Math.floor(+(s.found || {})[tk] || 0));
+      if (tn) this.trove[tk] = tn;
+      if (fn || tn) this.found[tk] = Math.max(fn, tn);
+    }
     // the koi book; an older save has none, so it starts from the koi in the pond
     this.book = {}; this.feats = {};
     if (s.book && typeof s.book === 'object') for (var v in s.book) {
@@ -999,6 +1116,7 @@
     }
     this.ripen(DT);
     this._breed(DT);
+    this._find(DT);
     if (this.step_ % 60 === 0) this._checkFeats();   // coins and pond size, once a second
     for (i = this.pops.length - 1; i >= 0; i--) {
       this.pops[i].age += DT;
@@ -1012,7 +1130,8 @@
               MAX_FISH: MAX_FISH, MAX_PADS: MAX_PADS, START_COINS: START_COINS, YOUNG_K: YOUNG_K,
               fishValue: fishValue, padValue: padValue, sizeCm: sizeCm,
               CROP_ORDER: CROP_ORDER, PRODUCE: PRODUCE, isCrop: isCrop, ripeness: ripeness,
-              ADULT_K: ADULT_K, GROWN_K: GROWN_K, FRY_K: FRY_K, NURSERY: NURSERY, FEATS: FEATS, favouredBy: favouredBy };
+              ADULT_K: ADULT_K, GROWN_K: GROWN_K, FRY_K: FRY_K, NURSERY: NURSERY, FEATS: FEATS, favouredBy: favouredBy,
+              TREASURES: TREASURES, TREASURE_ORDER: TREASURE_ORDER, findOdds: findOdds, MAX_CARRY: MAX_CARRY };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PondSim = api;
 })(typeof window !== 'undefined' ? window : this);

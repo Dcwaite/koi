@@ -175,6 +175,8 @@
       case 'harvest': play('plant', 0.4, 1.1, pan); play('twinkle', 0.3, 1.2, pan); break;
       case 'ripe': play('twinkle', 0.16, 1.35, pan, 1.2); break;
       case 'fry': play('bubbles', 0.4, 1.1, pan); play('twinkle', 0.32, 1.25, pan); break;
+      case 'find': play('bubbles', 0.22, 1.3, pan); play('twinkle', 0.18, 1.5, pan, 0.5); break;
+      case 'treasure': play('coin', 0.34, 1.05 + 0.25 * s, pan); play('twinkle', 0.3, 1.1 + 0.3 * s, pan); break;
     }
   }
 

@@ -107,6 +107,7 @@
     var done = 0, of = 0;
     S.VARIETY_ORDER.forEach(function (v) { var e = entry(v); of += 3; done += (e.kept ? 1 : 0) + (e.born ? 1 : 0) + (e.grown ? 1 : 0); });
     S.FEATS.forEach(function (f) { of++; if (pond().feats[f.id]) done++; });
+    S.TREASURE_ORDER.forEach(function (k) { of++; if (pond().found[k]) done++; });
     return { done: done, of: of };
   }
   function plantList(kinds) {
@@ -129,6 +130,21 @@
     if (!known) look = { body: '#0f2226', patch: '#0f2226', spots: [] };
     var f = { look: look, variety: v, len: R * 1.35, x: cx + R * 0.08, y: cx, a: -Math.PI * 0.62, phase: 1.2, turn: 0.35, glow: 0, k: 1 };
     D.fish(x, f);
+  }
+  // a treasure on a little dish of pond-bottom sand; one never found is only its outline in the sand
+  function trinket(c, kind, found) {
+    var d = Math.min(window.devicePixelRatio || 1, 2), W = Math.round((c.clientWidth || 90) * d);
+    c.width = W; c.height = W;
+    var x = c.getContext('2d'), cx = W / 2, R = W * 0.44;
+    x.fillStyle = 'rgba(8,4,2,0.4)'; x.beginPath(); x.arc(cx + W * 0.02, cx + W * 0.03, R, 0, 6.2832); x.fill();
+    x.fillStyle = '#5a4a38'; x.beginPath(); x.arc(cx, cx, R, 0, 6.2832); x.fill();
+    var sg = x.createRadialGradient(cx - R * 0.2, cx - R * 0.25, R * 0.05, cx, cx, R * 0.86);
+    sg.addColorStop(0, '#8d7a5c'); sg.addColorStop(1, '#5e4f3b');
+    x.fillStyle = sg; x.beginPath(); x.arc(cx, cx, R * 0.86, 0, 6.2832); x.fill();
+    if (found) D.treasure(x, kind, cx + R * 0.06, cx + R * 0.1, R * 1.05, -0.35, true);
+    else x.globalAlpha = 0.55;
+    D.treasure(x, kind, cx, cx, R * 1.05, -0.35, !found);
+    x.globalAlpha = 1;
   }
   function buildBook() {
     var root = book.body, p = pond(), t = tally();
@@ -165,6 +181,26 @@
       g.appendChild(card);
       dishes.push([c, v, e.kept]);
     });
+    shelf(root, 'Treasures');
+    var tl = el('p', 'note left');
+    tl.textContent = 'Now and then a koi comes up from the bottom with something in its mouth. Tap it to take it. Bigger koi find rarer things.';
+    root.appendChild(tl);
+    var tg = el('div', 'grid book-grid trove');
+    root.appendChild(tg);
+    var trinkets = [];
+    S.TREASURE_ORDER.forEach(function (k) {
+      var T = S.TREASURES[k], n = p.found[k] || 0;
+      var card = el('div', 'page' + (n ? '' : ' unknown'));
+      var c = el('canvas'); c.setAttribute('role', 'img');
+      c.setAttribute('aria-label', n ? 'A ' + T.name.toLowerCase() : 'A treasure not found yet');
+      card.appendChild(c);
+      var h = el('h4'); h.textContent = n ? T.name : 'Not found yet'; card.appendChild(h);
+      var hint = el('p', 'hint');
+      hint.textContent = n ? 'Found ' + (n === 1 ? 'once' : n + ' times') + '. Sells for ' + T.value + '.' : (T.rare ? 'Rare. Big koi find these.' : 'Keep watching the koi.');
+      card.appendChild(hint);
+      tg.appendChild(card);
+      trinkets.push([c, k, n > 0]);
+    });
     shelf(root, 'Milestones');
     var ms = el('ul', 'feats');
     S.FEATS.forEach(function (f) {
@@ -177,7 +213,10 @@
       ms.appendChild(li);
     });
     root.appendChild(ms);
-    requestAnimationFrame(function () { dishes.forEach(function (d) { dish(d[0], d[1], d[2]); }); });
+    requestAnimationFrame(function () {
+      dishes.forEach(function (d) { dish(d[0], d[1], d[2]); });
+      trinkets.forEach(function (d) { trinket(d[0], d[1], d[2]); });
+    });
   }
   function openBook() { buildBook(); openBoard(book); }
 
@@ -332,6 +371,7 @@
       var V = S.VARIETIES[n.id];
       if (n.kind === 'born') say('born', 'A baby ' + V.name + '!', n.first ? 'The first ever born in your pond. Added to your koi book.' : 'Born in your pond.');
       else if (n.kind === 'grown') say('feat', V.name + ', fully grown', 'Grown to ' + Math.round(S.GROWN_K * 24) + ' cm. Marked in your koi book.');
+      else if (n.kind === 'treasure') say('born', 'Found: ' + S.TREASURES[n.id].name, 'The first one. Added to your koi book, and you can sell it at the shop.');
       else if (n.kind === 'feat') {
         var f = S.FEATS.filter(function (x) { return x.id === n.id; })[0];
         if (f) say('feat', 'Achievement: ' + f.name, f.about);

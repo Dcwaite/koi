@@ -1,4 +1,4 @@
-/* Koi: what is above the water. One big limb of a cherry on the bank reaches out over the pond and sways in the wind;
+/* Koi: what is above the water. A limb of a cherry on the bank lies along the top of the pond and sways in the wind;
    the seasons turn every few minutes (blossom, green, red and gold, bare and snowy), and the weather changes:
    breeze, wind, rain that rings the water, snow, mist. Petals and leaves fall, land and float. Cloud shadows drift over,
    the sun glints on the ripples, gusts ruffle the water, dragonflies and butterflies visit, and ice creeps in from the
@@ -100,35 +100,29 @@
     return { bx: bx, by: by, segs: [], clusters: [], amp: amp, ph: rng() * 6.28, sp: 0.75 + rng() * 0.5,
              can: null, sh: null, ox: 0, oy: 0 };
   }
+  /* The limb lies along the top of the screen, mostly above it: the wood and most of the leaves are out of sight,
+     and what you see is the fringe of leaves hanging down over the top edge of the pond. */
   function makeBranch() {
-    var rng = S.mulberry32(4242), wide = W > H * 1.1;
-    var ax = W * (wide ? 0.8 : 0.9), ay = -T * 0.06;
-    var a = wide ? Math.PI * 0.72 : Math.PI * 0.62;                 // in toward the middle, and down
-    var total = Math.min(Math.hypot(W, H) * 0.5, T * 0.95), N = 8, seg = total / N;
-    var w0 = T * 0.04, leafR = T * 0.04;
-    limb = newPiece(rng, 0, 0, 0.006);
-    var subs = [], x = 0, y = 0, bend = (rng() - 0.5) * 0.08;
+    var rng = S.mulberry32(4242);
+    var ax = W + T * 0.06, ay = -T * 0.06, target = Math.PI - 0.015;   // in from the right, level along the top
+    var a = target, total = W * 1.02, N = Math.max(6, Math.round(W / (T * 0.13))), seg = total / N;
+    var w0 = T * 0.04, leafR = T * 0.04, hang = Math.min(T * 0.3, H * 0.22);
+    limb = newPiece(rng, 0, 0, 0.004);
+    var subs = [], x = 0, y = 0;
     for (var j = 0; j < N; j++) {
-      var w = lerp(w0, w0 * 0.3, j / N), wn = lerp(w0, w0 * 0.3, (j + 1) / N);
-      a += bend + (rng() - 0.5) * 0.28;
+      var w = lerp(w0, w0 * 0.35, j / N), wn = lerp(w0, w0 * 0.35, (j + 1) / N);
+      a += (rng() - 0.5) * 0.22 - (a - target) * 0.5;                 // it wanders a little but keeps to the top
       var x2 = x + Math.cos(a) * seg, y2 = y + Math.sin(a) * seg;
       limb.segs.push({ x0: x, y0: y, x: x2, y: y2, a: a, w0: w, w1: wn });
-      if (j >= N - 3) limb.clusters.push({ x: lerp(x, x2, 0.5), y: lerp(y, y2, 0.5), r: leafR * 0.9, seed: (rng() * 1e9) | 0 });
+      for (var c = 0; c < 2; c++)
+        limb.clusters.push({ x: lerp(x, x2, 0.25 + c * 0.5) + (rng() - 0.5) * seg * 0.2, y: lerp(y, y2, 0.5) + T * (0.025 + rng() * 0.03), r: leafR * (0.9 + rng() * 0.35), seed: (rng() * 1e9) | 0 });
       x = x2; y = y2;
-      // a side branch at most joints, to alternate sides
-      if (j < N - 1 && (j > 0 || rng() < 0.5) && rng() < 0.9) {
-        var side = j % 2 ? 1 : -1, sa = a + side * (0.7 + rng() * 0.4);
-        var sl = total * (0.3 - j * 0.014) * (0.8 + rng() * 0.4);
-        var p = newPiece(rng, x, y, 0.022);
-        twig(rng, p, 0, 0, sa, sl * 0.55, wn * 0.62, 0, j < 4 ? 3 : 2, leafR);
-        subs.push(p);
-      }
+      // side branches: most hang down over the water, a few reach up and out of sight
+      var sa = Math.PI / 2 + (rng() - 0.5) * 1.1, sl = hang * (0.55 + rng() * 0.6);
+      var p = newPiece(rng, x, y, 0.02);
+      twig(rng, p, 0, 0, sa, sl * 0.5, wn * 0.6, 0, 2, leafR);
+      subs.push(p);
     }
-    // the tip of the limb, branching out
-    var tip = newPiece(rng, x, y, 0.026);
-    twig(rng, tip, 0, 0, a + 0.25, seg * 0.9, w0 * 0.3, 0, 3, leafR);
-    twig(rng, tip, 0, 0, a - 0.45, seg * 0.8, w0 * 0.26, 1, 3, leafR);
-    subs.push(tip);
     limb.ax = ax; limb.ay = ay;
     pieces = [limb].concat(subs);
   }

@@ -49,10 +49,10 @@
 
   var basketEl = btn.querySelector('.basket'), basketN = btn.querySelector('.b');
   function showCoins(delta) {
-    var n = pond().coins, h = pond().basketCount();
+    var n = pond().coins, h = pond().basketCount() + pond().troveCount();
     plateN.textContent = n; purseN.textContent = n;
     basketEl.hidden = !h; basketN.textContent = h;
-    btn.setAttribute('aria-label', 'More: shop, koi book and settings. You have ' + n + ' coins' + (h ? ' and ' + h + ' things harvested to sell.' : '.'));
+    btn.setAttribute('aria-label', 'More: shop, koi book and settings. You have ' + n + ' coins' + (h ? ' and ' + h + ' things to sell.' : '.'));
     if (!delta) return;
     var g = document.createElement('span');
     g.className = 'gain' + (delta < 0 ? ' spend' : '');
@@ -176,13 +176,41 @@
     }
   }
 
+  // an indigo cloth laid out on the deck, with the treasures set out on it
+  function drawCloth(lot) {
+    var c = lot.canvas, W = fitCanvas(c), x = lot.ctx;
+    if (!W || lot.drawnAt === W) return;
+    lot.drawnAt = W;
+    var m = W * 0.08, s = W - 2 * m, i;
+    x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, W, W);
+    x.save(); x.translate(W / 2, W / 2); x.rotate(-0.06); x.translate(-W / 2, -W / 2);
+    x.fillStyle = 'rgba(8,4,2,0.45)'; x.fillRect(m + W * 0.025, m + W * 0.035, s, s);
+    var cg = x.createLinearGradient(m, m, m + s, m + s);
+    cg.addColorStop(0, '#2f3f63'); cg.addColorStop(1, '#1f2b47');
+    x.fillStyle = cg; x.fillRect(m, m, s, s);
+    // a pale pattern of little rings, and a fold down the middle
+    x.strokeStyle = 'rgba(220,225,240,0.12)'; x.lineWidth = Math.max(1, W * 0.008);
+    for (var gx = 0; gx < 5; gx++) for (var gy = 0; gy < 5; gy++) {
+      x.beginPath(); x.arc(m + s * (gx + 0.5) / 5, m + s * (gy + 0.5) / 5, s * 0.06, 0, 6.2832); x.stroke();
+    }
+    x.fillStyle = 'rgba(0,0,0,0.14)'; x.fillRect(m + s * 0.5, m, s * 0.5, s);
+    x.restore();
+    var n2 = Math.min(lot.count, 7), sz = W * (n2 > 3 ? 0.22 : 0.3);
+    for (i = 0; i < n2; i++) {
+      var a = i * 2.39996 + lot.off, d = W * 0.24 * Math.sqrt((i + (n2 > 1 ? 0.5 : 0)) / Math.max(n2, 1));
+      var tx = W / 2 + Math.cos(a) * d, ty = W / 2 + Math.sin(a) * d;
+      D.treasure(x, lot.treasure, tx + W * 0.012, ty + W * 0.018, sz, a, true);
+      D.treasure(x, lot.treasure, tx, ty, sz, a, false);
+    }
+  }
+
   function frame(ms) {
     raf = requestAnimationFrame(frame);
     var t = ms / 1000;
     for (var i = 0; i < lots.length; i++) {
       var l = lots[i];
       if (l.canvas.getBoundingClientRect().bottom < 0) continue;
-      if (l.produce) drawBasket(l); else if (l.fish) drawTub(l, t); else drawTray(l, t);
+      if (l.treasure) drawCloth(l); else if (l.produce) drawBasket(l); else if (l.fish) drawTub(l, t); else drawTray(l, t);
     }
   }
 
@@ -219,6 +247,7 @@
     if (o.plant) lot.pad = { kind: o.plant, k: o.padK || 1, tone: o.tone || 0, flower: S.PLANTS[o.plant].flower, r: 10, x: 0, y: 0, rot: 0, tx: 0, ty: 0, bob: 0,
                              grow: o.grow === undefined ? 1e9 : o.grow };
     if (o.produce) { lot.produce = o.produce; lot.count = o.count; }
+    if (o.treasure) { lot.treasure = o.treasure; lot.count = o.count; }
     lots.push(lot);
     return lot;
   }
@@ -237,7 +266,7 @@
     var p = pond();
     if (tab === 'koi') note.innerHTML = 'Young koi, about ' + Math.round(S.YOUNG_K * 24) + ' cm. Feed them and they grow, and a bigger koi fetches more. <b>' + p.fish.length + ' of ' + S.MAX_FISH + '</b> in your pond.';
     else if (tab === 'plants') note.innerHTML = 'Crops ripen on the water and glow when ready. Tap one to pick it, then sell the harvest here. <b>' + p.pads.length + ' of ' + S.MAX_PADS + '</b> plants in your pond.';
-    else note.innerHTML = 'What the dealer pays today. Koi fetch more the bigger they grow. Plants sell back for half.';
+    else note.innerHTML = 'What the dealer pays today. Treasures your koi find, the harvest, and koi, which fetch more the bigger they grow. Plants sell back for half.';
   }
   function refresh() { setNote(); for (var i = 0; i < lots.length; i++) if (lots[i].update) lots[i].update(); }
 
@@ -326,6 +355,23 @@
 
   function buildSell(root) {
     var p = pond();
+    var tk = S.TREASURE_ORDER.filter(function (k) { return p.trove[k] > 0; });
+    if (tk.length) {
+      shelf(root, 'Your treasures');
+      var gt = grid(root);
+      tk.forEach(function (k) {
+        var T = S.TREASURES[k], n = p.trove[k], total = n * T.value;
+        var lot = makeLot({ name: n === 1 ? T.name : n + ' ' + T.many, meta: n + ' at ' + T.value + ' each', cost: total, treasure: k, count: n, sell: true,
+                            alt: n === 1 ? 'A ' + T.name.toLowerCase() + ' on a cloth' : n + ' ' + T.many + ' on a cloth' });
+        lot.update = function () { lot.btn.disabled = false; lot.btn.textContent = n === 1 ? 'Sell for ' + total : 'Sell all for ' + total; };
+        lot.btn.addEventListener('click', function () {
+          var r = pond().sellTreasure(k);
+          if (r.error) return;
+          sfx('sell'); showCoins(r.paid); G.save(); render(true);
+        });
+        gt.appendChild(lot.el);
+      });
+    }
     shelf(root, 'Your harvest');
     var kinds = S.CROP_ORDER.filter(function (k) { return p.basket[k] > 0; });
     if (!kinds.length) {

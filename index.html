@@ -20,28 +20,20 @@
   #c { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block;
     touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent; cursor: pointer; }
-  header { position: fixed; left: 24px; top: 20px; pointer-events: none; -webkit-user-select: none; user-select: none; }
-  header p { margin: 0; color: #a59f90; transition: opacity 2.5s ease; }
-  header.poked p.hint { opacity: 0; }
-  header p.sky { margin-top: 2px; font-size: 14px; letter-spacing: 0.02em; color: #cfc6b2; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
-  header.poked p.sky { transform: translateY(-24px); transition: transform 1.2s ease 2s, opacity 1.2s ease-in; }
-  body.calm header p.sky { opacity: 0; }
   body.calm #shopBtn { opacity: 0; transition: opacity 1.2s ease-in; }
 </style>
-<link rel="stylesheet" href="shop.css?v=11">
+<link rel="stylesheet" href="shop.css?v=14">
 </head>
 <body>
 <canvas id="c"></canvas>
-<header id="hd"><p class="hint">tap to feed, drag to stir the water.</p><p class="sky" id="skyLbl"></p></header>
-<script src="pond.js?v=11"></script>
-<script src="sky.js?v=11"></script>
-<script src="audio.js?v=11"></script>
+<script src="pond.js?v=14"></script>
+<script src="sky.js?v=14"></script>
+<script src="audio.js?v=14"></script>
 <script>
 (function () {
   'use strict';
   var S = window.PondSim;
   var canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
-  var hd = document.getElementById('hd');
   var qs = location.search;
   var demo = /[?&]demo=1/.test(qs);
   var seedM = /[?&]seed=(\d+)/.exec(qs);
@@ -229,6 +221,21 @@
     ctx.arc(sxs[0] + len * 0.01, sys[0] - hw * 0.34, len * 0.014, 0, 6.2832);
     ctx.arc(sxs[0] + len * 0.01, sys[0] + hw * 0.34, len * 0.014, 0, 6.2832);
     ctx.fill();
+    if (f.carry) {
+      var ts = Math.max(10, len * 0.2), tx = sxs[0] + len * 0.06 + ts * 0.3, ty = sys[0];
+      ctx.globalAlpha = 1;
+      drawTreasureAt(f.carry, tx + ts * 0.12, ty + ts * 0.2, ts, -f.a + 0.5, true);
+      drawTreasureAt(f.carry, tx, ty, ts, -f.a + 0.5, false);
+      var tw = (performance.now() / 1000 + f.idx * 0.37) % 2.2;
+      if (tw < 0.5) {
+        var k = Math.sin(Math.PI * tw / 0.5), gl = ts * (0.5 + 0.5 * k);
+        ctx.globalAlpha = 0.9 * k; ctx.strokeStyle = '#fff6dc'; ctx.lineWidth = 1.2; ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(tx - gl * 0.2, ty - ts * 0.3 - gl); ctx.lineTo(tx - gl * 0.2, ty - ts * 0.3 + gl);
+        ctx.moveTo(tx - gl * 0.2 - gl * 0.7, ty - ts * 0.3); ctx.lineTo(tx - gl * 0.2 + gl * 0.7, ty - ts * 0.3);
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
 
@@ -448,16 +455,96 @@
     ctx.restore();
   }
 
+  /* One treasure, centred at (x, y), s across, as seen from above. */
+  function drawTreasureAt(kind, x, y, s, rot, shadow) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot || 0);
+    var h = s / 2, i, g;
+    function fill(col) { ctx.fillStyle = shadow ? SHADOW : col; }
+    function shine(px, py, rx, ry, a) {
+      if (shadow) return;
+      ctx.fillStyle = 'rgba(255,255,245,' + (a || 0.55) + ')';
+      ctx.beginPath(); ctx.ellipse(px, py, rx, ry, -0.5, 0, 6.2832); ctx.fill();
+    }
+    if (kind === 'pebble') {
+      fill('#5f9a78');
+      if (!shadow) { g = ctx.createRadialGradient(-h * 0.3, -h * 0.3, h * 0.1, 0, 0, h); g.addColorStop(0, '#9fd0ad'); g.addColorStop(1, '#3f7559'); ctx.fillStyle = g; }
+      ctx.beginPath(); ctx.ellipse(0, 0, h * 0.95, h * 0.72, 0.3, 0, 6.2832); ctx.fill();
+      shine(-h * 0.35, -h * 0.28, h * 0.3, h * 0.14, 0.45);
+    } else if (kind === 'shell') {
+      // a river mussel: a dark oval with growth lines and a sheen of mother-of-pearl
+      fill('#4b4a5e');
+      ctx.beginPath(); ctx.ellipse(0, 0, h, h * 0.62, 0, 0, 6.2832); ctx.fill();
+      if (!shadow) {
+        ctx.strokeStyle = 'rgba(210,205,230,0.35)'; ctx.lineWidth = Math.max(0.7, s * 0.05);
+        for (i = 1; i <= 3; i++) { ctx.beginPath(); ctx.ellipse(-h * 0.45 + i * h * 0.12, 0, h * (0.25 + i * 0.2), h * (0.16 + i * 0.13), 0, -1.3, 1.3); ctx.stroke(); }
+        g = ctx.createLinearGradient(-h, -h, h, h); g.addColorStop(0, 'rgba(190,230,235,0.35)'); g.addColorStop(0.5, 'rgba(240,200,230,0.25)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, h, h * 0.62, 0, 0, 6.2832); ctx.fill();
+      }
+    } else if (kind === 'coin') {
+      // an old copper coin with a square hole and a worn rim
+      fill('#b26a3a');
+      if (!shadow) { g = ctx.createRadialGradient(-h * 0.3, -h * 0.3, h * 0.1, 0, 0, h); g.addColorStop(0, '#dc9a62'); g.addColorStop(1, '#8a4a26'); ctx.fillStyle = g; }
+      ctx.beginPath(); ctx.arc(0, 0, h, 0, 6.2832); ctx.arc(0, 0, h * 0.001, 0, 6.2832, true); ctx.fill();
+      if (!shadow) {
+        ctx.strokeStyle = 'rgba(70,30,10,0.55)'; ctx.lineWidth = Math.max(0.7, s * 0.06);
+        ctx.beginPath(); ctx.arc(0, 0, h * 0.82, 0, 6.2832); ctx.stroke();
+        ctx.fillStyle = 'rgba(52,72,62,0.55)'; ctx.beginPath(); ctx.arc(h * 0.45, h * 0.4, h * 0.25, 0, 6.2832); ctx.fill();   // a little verdigris
+        ctx.fillStyle = '#1b1712'; ctx.fillRect(-h * 0.24, -h * 0.24, h * 0.48, h * 0.48);
+      }
+    } else if (kind === 'bead') {
+      // a round glass bead with a hole through it, the light shining through
+      fill('#3f8fb0');
+      if (!shadow) { g = ctx.createRadialGradient(h * 0.25, h * 0.25, h * 0.1, 0, 0, h); g.addColorStop(0, '#9fe3f0'); g.addColorStop(0.6, '#3f9bbd'); g.addColorStop(1, '#1f5d7c'); ctx.fillStyle = g; }
+      ctx.beginPath(); ctx.arc(0, 0, h * 0.85, 0, 6.2832); ctx.fill();
+      if (!shadow) {
+        ctx.fillStyle = 'rgba(10,30,40,0.7)'; ctx.beginPath(); ctx.arc(0, 0, h * 0.22, 0, 6.2832); ctx.fill();
+        ctx.strokeStyle = '#f2d27a'; ctx.lineWidth = Math.max(0.7, s * 0.07); ctx.beginPath(); ctx.arc(0, 0, h * 0.55, 0.4, 2.2); ctx.stroke();
+        shine(-h * 0.35, -h * 0.35, h * 0.22, h * 0.12, 0.7);
+      }
+    } else if (kind === 'pearl') {
+      fill('#ece4da');
+      if (!shadow) { g = ctx.createRadialGradient(-h * 0.3, -h * 0.35, h * 0.05, 0, 0, h * 0.8); g.addColorStop(0, '#ffffff'); g.addColorStop(0.55, '#efe6e0'); g.addColorStop(1, '#c9b8bf'); ctx.fillStyle = g; }
+      ctx.beginPath(); ctx.arc(0, 0, h * 0.75, 0, 6.2832); ctx.fill();
+      if (!shadow) {
+        ctx.fillStyle = 'rgba(240,190,210,0.25)'; ctx.beginPath(); ctx.arc(h * 0.15, h * 0.2, h * 0.45, 0, 6.2832); ctx.fill();
+        shine(-h * 0.28, -h * 0.3, h * 0.2, h * 0.12, 0.9);
+      }
+    } else if (kind === 'ring') {
+      // a gold ring with a small red stone
+      ctx.strokeStyle = shadow ? SHADOW : '#d6a83c'; ctx.lineWidth = s * 0.2;
+      ctx.beginPath(); ctx.arc(0, 0, h * 0.68, 0, 6.2832); ctx.stroke();
+      if (!shadow) {
+        ctx.strokeStyle = 'rgba(255,240,180,0.75)'; ctx.lineWidth = s * 0.06;
+        ctx.beginPath(); ctx.arc(0, 0, h * 0.72, 3.4, 4.6); ctx.stroke();
+      }
+      fill('#c0392b'); ctx.beginPath(); ctx.arc(0, -h * 0.72, h * 0.26, 0, 6.2832); ctx.fill();
+      shine(-h * 0.07, -h * 0.8, h * 0.09, h * 0.06, 0.8);
+    } else {
+      // a little jade frog, carved: body, back legs, two bumps for eyes
+      fill('#4f9a6c');
+      ctx.beginPath(); ctx.ellipse(-h * 0.55, h * 0.45, h * 0.32, h * 0.18, 0.6, 0, 6.2832); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(-h * 0.55, -h * 0.45, h * 0.32, h * 0.18, -0.6, 0, 6.2832); ctx.fill();
+      if (!shadow) { g = ctx.createRadialGradient(-h * 0.2, -h * 0.25, h * 0.05, 0, 0, h * 0.8); g.addColorStop(0, '#a8e0b8'); g.addColorStop(1, '#3d7f56'); ctx.fillStyle = g; }
+      ctx.beginPath(); ctx.ellipse(0, 0, h * 0.68, h * 0.52, 0, 0, 6.2832); ctx.fill();
+      ctx.beginPath(); ctx.arc(h * 0.52, -h * 0.26, h * 0.17, 0, 6.2832); ctx.arc(h * 0.52, h * 0.26, h * 0.17, 0, 6.2832); ctx.fill();
+      if (!shadow) {
+        ctx.fillStyle = '#1d3a29'; ctx.beginPath(); ctx.arc(h * 0.56, -h * 0.26, h * 0.06, 0, 6.2832); ctx.arc(h * 0.56, h * 0.26, h * 0.06, 0, 6.2832); ctx.fill();
+        shine(-h * 0.2, -h * 0.2, h * 0.22, h * 0.1, 0.4);
+      }
+    }
+    ctx.restore();
+  }
+
   // "+2 lotus pods" rising from a harvest
   function drawPops() {
     var pops = pond.pops;
     for (var i = 0; i < pops.length; i++) {
       var p = pops[i], t = p.age / 1.8, y = p.y - 34 * Math.sqrt(t), a = t < 0.65 ? 1 : 1 - (t - 0.65) / 0.35;
-      var P = S.PRODUCE[p.kind], text = '+' + p.n + ' ' + (p.n === 1 ? P.one : P.many);
+      var text = p.treasure ? S.TREASURES[p.treasure].name : '+' + p.n + ' ' + (p.n === 1 ? S.PRODUCE[p.kind].one : S.PRODUCE[p.kind].many);
       ctx.globalAlpha = a;
       ctx.font = 'bold 17px Georgia, "Iowan Old Style", serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
       var w = ctx.measureText(text).width, x = p.x - (w + 26) / 2;
-      drawProduceAt(p.kind, x + 10, y, 18, 0, false);
+      if (p.treasure) drawTreasureAt(p.treasure, x + 10, y, 18, 0, false); else drawProduceAt(p.kind, x + 10, y, 18, 0, false);
       ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(20,12,6,0.85)';
       ctx.strokeText(text, x + 24, y); ctx.fillStyle = '#f3e3bd'; ctx.fillText(text, x + 24, y);
     }
@@ -469,7 +556,8 @@
   window.KoiDraw = {
     fish: function (c, f) { withCtx(c, drawFish, f); },
     pad: function (c, p) { withCtx(c, drawPad, p); },
-    produce: function (c, kind, x, y, s, rot) { withCtx(c, function () { drawProduceAt(kind, x, y, s, rot, false); }); }
+    produce: function (c, kind, x, y, s, rot) { withCtx(c, function () { drawProduceAt(kind, x, y, s, rot, false); }); },
+    treasure: function (c, kind, x, y, s, rot, shadow) { withCtx(c, function () { drawTreasureAt(kind, x, y, s, rot, shadow); }); }
   };
 
   /* ---------- food ---------- */
@@ -520,7 +608,7 @@
     drawPops();
   }
 
-  var raf = 0, last = 0, acc = 0, skyT = 0, skyLbl = document.getElementById('skyLbl');
+  var raf = 0, last = 0, acc = 0;
   function frame(t) {
     raf = requestAnimationFrame(frame);
     var dt = Math.min(0.1, (t - last) / 1000); last = t;
@@ -530,7 +618,6 @@
     if (acc > S.DT) acc = 0;
     if (window.KoiSky) {
       KoiSky.update(dt, pond, Date.now());
-      if ((skyT -= dt) <= 0) { skyT = 1; var lbl = KoiSky.label(); if (skyLbl.textContent !== lbl) skyLbl.textContent = lbl; }
     }
     playCues();
     tellNews();
@@ -579,7 +666,6 @@
     if (!q.drag) {
       if (Math.hypot(p.x - q.x0, p.y - q.y0) < SLOP) return;
       q.drag = true;
-      hd.className = 'poked';
     }
     if (Math.abs(p.x - q.x) + Math.abs(p.y - q.y) < 1) return;
     pond.wake(q.x, q.y, p.x, p.y);
@@ -589,10 +675,9 @@
     var q = pointers[e.pointerId];
     delete pointers[e.pointerId];
     if (!q || q.drag) return;
-    // a tap on a ripe crop picks it; anywhere else it scatters food
-    if (pond.harvestAt(q.x0, q.y0)) { window.dispatchEvent(new Event('koi:change')); save(); }
+    // a tap on a koi carrying a treasure takes it; on a ripe crop it picks it; anywhere else it scatters food
+    if (pond.takeTreasureAt(q.x0, q.y0) || pond.harvestAt(q.x0, q.y0)) { window.dispatchEvent(new Event('koi:change')); save(); }
     else pond.feed(q.x0, q.y0);
-    hd.className = 'poked';
   });
   canvas.addEventListener('pointercancel', function (e) { delete pointers[e.pointerId]; });
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
@@ -646,7 +731,7 @@
   start();
 })();
 </script>
-<script src="shop.js?v=11"></script>
-<script src="menu.js?v=11"></script>
+<script src="shop.js?v=14"></script>
+<script src="menu.js?v=14"></script>
 </body>
 </html>

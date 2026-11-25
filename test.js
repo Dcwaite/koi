@@ -352,6 +352,46 @@ feedRun(1920, 1080, 3);
   check('an older save starts its book from the koi in the pond', back2.fish.every(function (f) { return back2.book[f.variety].kept; }));
 })();
 
+// ---- 9c. treasures: koi find them, you take them with a tap, they sell
+(function () {
+  var p = new S.Pond(1000, 720, 41), i;
+  p.breedTimer = Infinity;
+  check('a new pond holds no treasure', p.troveCount() === 0 && p.carriers().length === 0);
+  // koi find things on their own, but never more than a couple at once
+  var most = 0;
+  for (i = 0; i < 60 * 600; i++) { p.step(); most = Math.max(most, p.carriers().length); }
+  check('koi find treasures on their own, at most ' + S.MAX_CARRY + ' carried at once', p.carriers().length > 0 && most <= S.MAX_CARRY,
+    'carrying: ' + p.carriers().map(function (f) { return f.carry; }).join(', '));
+  // a tap well away from them takes nothing
+  var c = p.carriers()[0];
+  var far = { x: c.x > 500 ? 30 : 970, y: c.y > 360 ? 30 : 690 };
+  check('a tap away from a carrying koi takes nothing', p.takeTreasureAt(far.x, far.y) === null || p.carriers().length >= 1);
+  // a tap on its head takes it: into the trove, into the book, and it is news the first time
+  p.news = [];
+  var kind = c.carry, mx = c.x + Math.cos(c.a) * c.len * 0.4, my = c.y + Math.sin(c.a) * c.len * 0.4;
+  var got = p.takeTreasureAt(mx, my);
+  check('a tap on a carrying koi takes its treasure', got && got.kind === kind && !c.carry && p.trove[kind] === 1 && p.found[kind] === 1);
+  check('the first of a kind is news, and a milestone', p.news.some(function (n) { return n.kind === 'treasure' && n.id === kind; }) && p.feats.treasure);
+  // it sells for its value, and then it is gone from the trove but stays in the book
+  var before = p.coins, r = p.sellTreasure(kind);
+  check('a treasure sells for its value', r.paid === S.TREASURES[kind].value && p.coins === before + r.paid && !p.trove[kind] && p.found[kind] === 1);
+  check('there is nothing to sell twice', !!p.sellTreasure(kind).error);
+  // bigger koi find the rare things more often
+  var small = S.findOdds(0.6), big = S.findOdds(1.6);
+  function rare(o) { return o.filter(function (x) { return S.TREASURES[x.kind].rare; }).reduce(function (a, x) { return a + x.p; }, 0); }
+  check('bigger koi find rare treasures more often', rare(big) > rare(small) * 2, 'small ' + rare(small).toFixed(3) + ', big ' + rare(big).toFixed(3));
+  // a koi still carrying something, and the trove, come back after a save
+  p.find(p.fish[0], 'pearl'); p.find(p.fish[1], 'coin');
+  var mx1 = p.fish[1].x + Math.cos(p.fish[1].a) * p.fish[1].len * 0.4, my1 = p.fish[1].y + Math.sin(p.fish[1].a) * p.fish[1].len * 0.4;
+  p.takeTreasureAt(mx1, my1);
+  var q = new S.Pond(1000, 720, 42), state = JSON.parse(JSON.stringify(p.toState(1)));
+  check('treasures save and load', q.fromState(state, 1) && q.carriers().some(function (f) { return f.carry === 'pearl'; }) &&
+    q.trove.coin >= 1 && q.found[kind] >= 1);
+  // finding every kind fills the trove milestone
+  S.TREASURE_ORDER.forEach(function (k) { var f = q.fish[0]; f.carry = null; q.find(f, k); q.takeTreasureAt(f.x, f.y); });
+  check('finding every kind is a milestone', !!q.feats.allTreasure);
+})();
+
 // ---- 10. timing
 (function () {
   [[1000, 720], [375, 812], [1920, 1080]].forEach(function (s) {

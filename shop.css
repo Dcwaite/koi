@@ -121,6 +121,8 @@
 .page { display: flex; flex-direction: column; align-items: center; padding: 12px 10px 12px; border-radius: 4px; color: var(--ink); text-align: center;
   background: linear-gradient(180deg, #f1e8d1, #e2d5b5); box-shadow: 0 2px 0 var(--paper-edge), 0 8px 16px rgba(0,0,0,0.35); }
 .page canvas { width: 78%; aspect-ratio: 1; display: block; }
+.book-grid.trove { grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); }
+.trove .page canvas { width: 64%; }
 .page h4 { margin: 8px 0 6px; font: bold 17px/1.2 Georgia, serif; }
 .page.unknown h4 { color: #8a775e; }
 .marks { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 0; padding: 0; list-style: none; }
