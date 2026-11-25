@@ -14,10 +14,10 @@
 
   /* ---------- the button on the water ---------- */
   var btn = document.createElement('button');
-  btn.id = 'shopBtn'; btn.type = 'button'; btn.setAttribute('aria-haspopup', 'dialog');
+  btn.id = 'shopBtn'; btn.type = 'button'; btn.setAttribute('aria-haspopup', 'menu'); btn.setAttribute('aria-expanded', 'false');
   btn.innerHTML = '<span class="purse">' + MON + '<span class="n"></span></span>' +
                   '<span class="basket" hidden>' + BASKET + '<span class="b"></span></span>' +
-                  '<span class="go">' + STALL + 'Shop</span>';
+                  '<span class="go">More<svg class="chev" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 7.5l5 5"/></svg></span>';
   document.body.appendChild(btn);
 
   /* ---------- the yard ---------- */
@@ -52,7 +52,7 @@
     var n = pond().coins, h = pond().basketCount();
     plateN.textContent = n; purseN.textContent = n;
     basketEl.hidden = !h; basketN.textContent = h;
-    btn.setAttribute('aria-label', 'Shop. You have ' + n + ' coins' + (h ? ' and ' + h + ' things harvested to sell.' : '.'));
+    btn.setAttribute('aria-label', 'More: shop, koi book and settings. You have ' + n + ' coins' + (h ? ' and ' + h + ' things harvested to sell.' : '.'));
     if (!delta) return;
     var g = document.createElement('span');
     g.className = 'gain' + (delta < 0 ? ' spend' : '');
@@ -207,6 +207,7 @@
     tag.innerHTML = '<h3></h3><p class="meta"></p><div class="cost">' + MON + '<span></span></div>';
     tag.querySelector('h3').textContent = o.name;
     tag.querySelector('.meta').textContent = o.meta;
+    if (o.brings) { var br = document.createElement('p'); br.className = 'brings'; br.textContent = o.brings; tag.insertBefore(br, tag.querySelector('.cost')); }
     tag.querySelector('.cost span').textContent = o.cost;
     el.appendChild(tag);
     var b = document.createElement('button');
@@ -257,10 +258,16 @@
         var r = pond().buyFish(id);
         if (r.error) return;
         lot.glowAt = performance.now() / 1000;
-        stamp(lot, 'Bought'); showCoins(-v.price); G.save(); refresh();
+        sfx('buyKoi'); stamp(lot, 'Bought'); showCoins(-v.price); G.save(); refresh();
       });
       g.appendChild(lot.el);
     });
+  }
+
+  // which young a plant brings, for its tag: "Brings Tancho and Kohaku babies"
+  function brings(kind) {
+    var v = (S.NURSERY[kind] || []).map(function (id) { return S.VARIETIES[id].name.replace('Orange ', '').replace('Platinum ', ''); });
+    return v.length ? 'Brings ' + v.join(' and ') + ' babies' : '';
   }
 
   function buildPlants(root) {
@@ -268,7 +275,7 @@
     var gc = grid(root);
     S.CROP_ORDER.forEach(function (id, n) {
       var pl = S.PLANTS[id], P = S.PRODUCE[id], c = pl.crop;
-      var lot = makeLot({ name: pl.name, meta: c.yield + ' ' + P.unit + ' every ' + minutes(c.grow), cost: pl.price, plant: id, tone: n % 3,
+      var lot = makeLot({ name: pl.name, meta: c.yield + ' ' + P.unit + ' every ' + minutes(c.grow), brings: brings(id), cost: pl.price, plant: id, tone: n % 3,
                           alt: 'A ripe ' + pl.name.toLowerCase() + ' plant in a wooden tray' });
       lot.update = function () {
         var why = pond().canBuyPlant(id);
@@ -277,7 +284,7 @@
       lot.btn.addEventListener('click', function () {
         var r = pond().buyPlant(id);
         if (r.error) return;
-        stamp(lot, 'Bought'); showCoins(-pl.price); G.save(); refresh();
+        sfx('buyPlant'); stamp(lot, 'Bought'); showCoins(-pl.price); G.save(); refresh();
       });
       gc.appendChild(lot.el);
     });
@@ -285,7 +292,7 @@
     var g = grid(root);
     S.PLANT_ORDER.forEach(function (id, n) {
       var pl = S.PLANTS[id];
-      var lot = makeLot({ name: pl.name, meta: pl.flower ? 'A pad with a flower' : 'A plain green pad', cost: pl.price, plant: id, tone: n % 3,
+      var lot = makeLot({ name: pl.name, meta: pl.flower ? 'A pad with a flower' : 'A plain green pad', brings: brings(id), cost: pl.price, plant: id, tone: n % 3,
                           alt: 'A ' + pl.name.toLowerCase() + ' floating in a wooden tray' });
       lot.update = function () {
         var why = pond().canBuyPlant(id);
@@ -294,7 +301,7 @@
       lot.btn.addEventListener('click', function () {
         var r = pond().buyPlant(id);
         if (r.error) return;
-        stamp(lot, 'Bought'); showCoins(-pl.price); G.save(); refresh();
+        sfx('buyPlant'); stamp(lot, 'Bought'); showCoins(-pl.price); G.save(); refresh();
       });
       g.appendChild(lot.el);
     });
@@ -309,11 +316,11 @@
       lot.btn.textContent = why || (armed ? 'Tap again to sell' : 'Sell for ' + price);
     };
     lot.btn.addEventListener('click', function () {
-      if (!armed) { armed = true; lot.update(); clearTimeout(timer); timer = setTimeout(function () { armed = false; lot.update(); }, 3000); return; }
+      if (!armed) { armed = true; sfx('arm'); lot.update(); clearTimeout(timer); timer = setTimeout(function () { armed = false; lot.update(); }, 3000); return; }
       clearTimeout(timer);
       var r = sellIt();
-      if (r.error) { armed = false; lot.update(); return; }
-      showCoins(r.paid); G.save(); render(true);
+      if (r.error) { armed = false; sfx('no'); lot.update(); return; }
+      sfx('sell'); showCoins(r.paid); G.save(); render(true);
     });
   }
 
@@ -335,7 +342,7 @@
         lot.btn.addEventListener('click', function () {
           var r = pond().sellProduce(k);
           if (r.error) return;
-          showCoins(r.paid); G.save(); render(true);
+          sfx('sell'); showCoins(r.paid); G.save(); render(true);
         });
         gh.appendChild(lot.el);
       });
@@ -377,33 +384,34 @@
   }
 
   /* ---------- opening and closing ---------- */
+  function sfx(k) { if (window.KoiAudio) window.KoiAudio.ui(k); }
+
   function open() {
     if (!shop.hidden) return;
-    shop.hidden = false; shown = Date.now();
+    shop.hidden = false; shown = Date.now(); sfx('open');
     showCoins(0); render(false);
     if (!raf) raf = requestAnimationFrame(frame);
     shut.focus();
   }
   function close() {
     if (shop.hidden) return;
-    shop.hidden = true;
+    shop.hidden = true; sfx('close');
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
     lots = []; lotsEl.innerHTML = '';
     G.save();
     btn.focus();
   }
 
-  btn.addEventListener('click', open);
   shut.addEventListener('click', close);
   shop.addEventListener('click', function (e) { if (e.target === shop) close(); });
   crates.forEach(function (c) {
-    c.addEventListener('click', function () { if (tab !== c.dataset.tab) { tab = c.dataset.tab; render(false); } });
+    c.addEventListener('click', function () { if (tab !== c.dataset.tab) { tab = c.dataset.tab; sfx('tab'); render(false); } });
   });
   shop.querySelector('.crates').addEventListener('keydown', function (e) {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     var i = crates.findIndex(function (c) { return c.dataset.tab === tab; });
     i = (i + (e.key === 'ArrowRight' ? 1 : crates.length - 1)) % crates.length;
-    tab = crates[i].dataset.tab; render(false); crates[i].focus();
+    tab = crates[i].dataset.tab; sfx('tab'); render(false); crates[i].focus();
   });
   document.addEventListener('keydown', function (e) {
     if (shop.hidden) return;
@@ -419,5 +427,5 @@
 
   showCoins(0);
   window.addEventListener('koi:change', function () { showCoins(0); });
-  window.KoiShop ={ open: open, close: close, isOpen: function () { return !shop.hidden; } };
+  window.KoiShop = { open: open, close: close, isOpen: function () { return !shop.hidden; }, icons: { MON: MON, STALL: STALL, CROSS: CROSS } };
 })();

@@ -175,6 +175,7 @@ feedRun(1920, 1080, 3);
 
 (function () {
   var p = new S.Pond(1000, 720, 6), i;
+  p.breedTimer = Infinity;   // no babies here: this is about the koi already in the pond
   for (i = 0; i < 12; i++) p.feed(200 + i * 50, 360);           // far more than five koi can eat
   for (i = 0; i < 60 * 60; i++) p.step();
   var full = p.fish.every(function (f) { return f.full > 0.85; });
@@ -190,6 +191,7 @@ feedRun(1920, 1080, 3);
 // ---- growth: eating makes a koi bigger, a little at a time, up to a limit, and it still fits in the pond
 (function () {
   var p = new S.Pond(1000, 720, 8), i, k, out = 0, maxJump = 0;
+  p.breedTimer = Infinity;   // no babies here: this is about the koi already in the pond
   var len0 = p.fish.map(function (f) { return f.len; });
   var eaten0 = p.fish.map(function () { return 0; });
   for (var round = 0; round < 24; round++) {
@@ -292,6 +294,62 @@ feedRun(1920, 1080, 3);
   r.fromState(saved, t0 + 3 * 3600 * 1000);
   check('and wait, ripe, after a long time away', r.pads.filter(function (d) { return S.isCrop(d.kind); }).every(function (d) { return S.ripeness(d) === 1; }));
   check('pops fade away', (function () { for (var k = 0; k < 200; k++) p.step(); return p.pops.length === 0; })());
+})();
+
+// ---- 9b. breeding and the koi book
+(function () {
+  var p = new S.Pond(1000, 720, 31), i;
+  check('a new pond has no news, and its starting koi are in the book', p.news.length === 0 &&
+    p.fish.every(function (f) { return p.book[f.variety] && p.book[f.variety].kept; }));
+  // hungry koi have no young
+  p.fish.forEach(function (f) { f.k = f.kt = 1.2; f.full = 0; });
+  check('hungry koi have no young', p.breed() === null && p.fish.length === 5);
+  // small koi have no young
+  p.fish.forEach(function (f) { f.k = f.kt = 0.7; f.full = 1; });
+  check('young koi have no young', p.breed() === null);
+  // grown, fed koi do, and the baby is small, near its parents, and in the book
+  p.fish.forEach(function (f) { f.k = f.kt = 1.2; f.full = 1; });
+  var n0 = p.fish.length, baby = p.breed();
+  check('grown, fed koi have a baby', baby && p.fish.length === n0 + 1 && baby.k === S.FRY_K && p.book[baby.variety].born === 1 &&
+    p.news.some(function (n) { return n.kind === 'born' && n.id === baby.variety; }) && p.feats.fry,
+    baby ? baby.variety : 'none');
+  check('the baby is inside the pond', baby.x > 0 && baby.x < 1000 && baby.y > 0 && baby.y < 720);
+  // it happens by itself over time, and never past a full pond
+  var q = new S.Pond(1000, 720, 32);
+  q.fish.forEach(function (f) { f.k = f.kt = 1.2; });
+  var born = 0;
+  for (i = 0; i < 60 * 60 * 15; i++) {
+    if (i % 600 === 0) q.fish.forEach(function (f) { f.full = 1; });   // well looked after
+    q.step();
+  }
+  check('koi have young by themselves, up to a full pond', q.bornCount > 0 && q.fish.length <= S.MAX_FISH, q.bornCount + ' born, ' + q.fish.length + ' koi');
+  // plants tip the odds: a pond of lotus brings Platinum Ogon, which neither parent is
+  var r = new S.Pond(1000, 720, 33);
+  var plain = r.babyOdds('kohaku', 'kohaku');
+  r.coins = 5000; for (i = 0; i < 6; i++) r.buyPlant('lotus');
+  var lotus = r.babyOdds('kohaku', 'kohaku');
+  function pOf(list, v) { var e = list.filter(function (x) { return x.variety === v; })[0]; return e ? e.p : 0; }
+  check('plants decide the babies: lotus brings Platinum Ogon', pOf(plain, 'ogon') === 0 && pOf(lotus, 'ogon') > 0.15,
+    'ogon ' + pOf(plain, 'ogon').toFixed(2) + ' -> ' + pOf(lotus, 'ogon').toFixed(2));
+  var counts = {}, rr = new S.Pond(1000, 720, 34);
+  rr.coins = 5000; for (i = 0; i < 6; i++) rr.buyPlant('lotus');
+  for (i = 0; i < 300; i++) {
+    rr.fish = rr.fish.slice(0, 2);
+    rr.fish.forEach(function (f) { f.variety = 'kohaku'; f.k = f.kt = 1.2; f.full = 1; });
+    var b = rr.breed(); counts[b.variety] = (counts[b.variety] || 0) + 1;
+  }
+  check('and it shows in the babies born', counts.ogon > 50 && counts.kohaku > 50, JSON.stringify(counts));
+  // growing marks the book
+  var g = new S.Pond(1000, 720, 35); g.breedTimer = Infinity;
+  var f = g.fish[0]; f.kt = S.GROWN_K + 0.01; g._grew(f);
+  check('a koi grown to full size is marked in the book', g.book[f.variety].grown && g.news.some(function (n) { return n.kind === 'grown'; }));
+  // the book survives a save
+  var st = JSON.parse(JSON.stringify(p.toState(1))), back = new S.Pond(800, 600, 36);
+  back.fromState(st, 1);
+  check('the koi book and milestones are saved', back.book[baby.variety].born === 1 && back.feats.fry && back.bornCount === 1 && back.news.length === 0);
+  var old = JSON.parse(JSON.stringify(p.toState(1))); delete old.book; delete old.feats;
+  var back2 = new S.Pond(800, 600, 37); back2.fromState(old, 1);
+  check('an older save starts its book from the koi in the pond', back2.fish.every(function (f) { return back2.book[f.variety].kept; }));
 })();
 
 // ---- 10. timing

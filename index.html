@@ -12,14 +12,20 @@
     -webkit-tap-highlight-color: transparent; cursor: pointer; }
   header { position: fixed; left: 24px; top: 20px; pointer-events: none; -webkit-user-select: none; user-select: none; }
   header p { margin: 0; color: #a59f90; transition: opacity 2.5s ease; }
-  header.poked p { opacity: 0; }
+  header.poked p.hint { opacity: 0; }
+  header p.sky { margin-top: 2px; font-size: 14px; letter-spacing: 0.02em; color: #cfc6b2; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
+  header.poked p.sky { transform: translateY(-24px); transition: transform 1.2s ease 2s, opacity 1.2s ease-in; }
+  body.calm header p.sky { opacity: 0; }
+  body.calm #shopBtn { opacity: 0; transition: opacity 1.2s ease-in; }
 </style>
-<link rel="stylesheet" href="shop.css?v=4">
+<link rel="stylesheet" href="shop.css?v=8">
 </head>
 <body>
 <canvas id="c"></canvas>
-<header id="hd"><p>tap to feed, drag to stir the water.</p></header>
-<script src="pond.js?v=4"></script>
+<header id="hd"><p class="hint">tap to feed, drag to stir the water.</p><p class="sky" id="skyLbl"></p></header>
+<script src="pond.js?v=8"></script>
+<script src="sky.js?v=8"></script>
+<script src="audio.js?v=8"></script>
 <script>
 (function () {
   'use strict';
@@ -35,26 +41,46 @@
   var wcan = document.createElement('canvas'), wctx = wcan.getContext('2d'), wimg = null;
   var floor = document.createElement('canvas');
 
+  /* ---------- the colour of the water ----------
+     floor: the pond bed from the middle out; light/dark: the soft mottling; veil: the water over the fish. */
+  var SCHEMES = [
+    { id: 'jade', name: 'Jade', floor: ['#1d3a3d', '#162c33', '#0e1a22'], light: '70,110,104', dark: '6,12,18', stone: '120,140,130', veil: '20,46,52', bg: '#14171f' },
+    { id: 'moss', name: 'Mossy', floor: ['#2b3b25', '#1f2c1c', '#121a11'], light: '110,128,72', dark: '10,14,6', stone: '140,140,110', veil: '30,46,24', bg: '#141810' },
+    { id: 'spring', name: 'Spring', floor: ['#24526a', '#1b3e53', '#10263a'], light: '90,150,170', dark: '6,14,26', stone: '150,170,180', veil: '20,56,78', bg: '#0f1a26' },
+    { id: 'shallows', name: 'Shallows', floor: ['#4e6f67', '#3f5c56', '#2c433f'], light: '160,185,170', dark: '20,34,32', stone: '190,195,175', veil: '50,84,78', bg: '#1c2624' },
+    { id: 'tea', name: 'Tea', floor: ['#3e3624', '#2e2819', '#1a160e'], light: '140,118,64', dark: '14,10,4', stone: '160,140,100', veil: '52,42,20', bg: '#17130c' },
+    { id: 'dusk', name: 'Dusk', floor: ['#2a2b4c', '#1d1f3a', '#101124'], light: '110,104,160', dark: '6,6,20', stone: '150,140,180', veil: '30,30,66', bg: '#10101c' }
+  ];
+  var LOOK_KEY = 'koi-look-v1', scheme = SCHEMES[0];
+  try { var lk = localStorage.getItem(LOOK_KEY); SCHEMES.forEach(function (c) { if (c.id === lk) scheme = c; }); } catch (err) {}
+  document.body.style.background = scheme.bg;
+  function setScheme(id) {
+    SCHEMES.forEach(function (c) { if (c.id === id) scheme = c; });
+    try { localStorage.setItem(LOOK_KEY, scheme.id); } catch (err) {}
+    document.body.style.background = scheme.bg;
+    buildFloor();
+  }
+
   function buildFloor() {
     floor.width = Math.max(1, Math.round(W)); floor.height = Math.max(1, Math.round(H));
     var f = floor.getContext('2d'), rng = S.mulberry32(11), i;
     var R = Math.hypot(W, H) * 0.62;
     var g = f.createRadialGradient(W * 0.46, H * 0.44, 0, W * 0.5, H * 0.5, R);
-    g.addColorStop(0, '#1d3a3d'); g.addColorStop(0.55, '#162c33'); g.addColorStop(1, '#0e1a22');
+    g.addColorStop(0, scheme.floor[0]); g.addColorStop(0.55, scheme.floor[1]); g.addColorStop(1, scheme.floor[2]);
     f.fillStyle = g; f.fillRect(0, 0, W, H);
     // soft mottling so still water is not one flat gradient
     for (i = 0; i < 46; i++) {
       var x = rng() * W, y = rng() * H, r = (0.05 + rng() * 0.16) * Math.min(W, H);
       var light = rng() < 0.45;
       var b = f.createRadialGradient(x, y, 0, x, y, r);
-      b.addColorStop(0, light ? 'rgba(70,110,104,0.10)' : 'rgba(6,12,18,0.16)');
-      b.addColorStop(1, light ? 'rgba(70,110,104,0)' : 'rgba(6,12,18,0)');
+      b.addColorStop(0, 'rgba(' + (light ? scheme.light + ',0.10)' : scheme.dark + ',0.16)'));
+      b.addColorStop(1, 'rgba(' + (light ? scheme.light : scheme.dark) + ',0)');
       f.fillStyle = b; f.fillRect(x - r, y - r, 2 * r, 2 * r);
     }
     // a few stones on the bottom, barely there
     for (i = 0; i < 70; i++) {
       var sx = rng() * W, sy = rng() * H, sr = 2 + rng() * 6;
-      f.fillStyle = rng() < 0.5 ? 'rgba(120,140,130,0.07)' : 'rgba(0,0,0,0.12)';
+      f.fillStyle = rng() < 0.5 ? 'rgba(' + scheme.stone + ',0.07)' : 'rgba(0,0,0,0.12)';
       f.beginPath(); f.ellipse(sx, sy, sr, sr * (0.6 + rng() * 0.4), rng() * 3.14, 0, 6.2832); f.fill();
     }
   }
@@ -83,6 +109,7 @@
     wcan.width = pond.grid.w; wcan.height = pond.grid.h;
     wimg = wctx.createImageData(pond.grid.w, pond.grid.h);
     buildFloor();
+    if (window.KoiSky) KoiSky.setup(W, H, dpr);
   }
 
   /* ---------- fish ---------- */
@@ -470,18 +497,20 @@
     ctx.drawImage(floor, 0, 0, W, H);
     for (i = 0; i < pond.fish.length; i++) drawFish(pond.fish[i]);
     // a veil of water over the fish so they sit under the surface
-    ctx.fillStyle = 'rgba(20,46,52,0.2)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(' + scheme.veil + ',0.2)'; ctx.fillRect(0, 0, W, H);
     S.shade(pond.grid, wimg.data);
     wctx.putImageData(wimg, 0, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(wcan, 0, 0, W, H);
     drawFood();
+    if (window.KoiSky) KoiSky.drawFloating(ctx);
     for (i = 0; i < pond.pads.length; i++) drawPad(pond.pads[i]);
+    if (window.KoiSky) KoiSky.drawAbove(ctx);
     drawPops();
   }
 
-  var raf = 0, last = 0, acc = 0;
+  var raf = 0, last = 0, acc = 0, skyT = 0, skyLbl = document.getElementById('skyLbl');
   function frame(t) {
     raf = requestAnimationFrame(frame);
     var dt = Math.min(0.1, (t - last) / 1000); last = t;
@@ -489,7 +518,27 @@
     var n = 0;
     while (acc >= S.DT && n < 4) { pond.step(); acc -= S.DT; n++; }
     if (acc > S.DT) acc = 0;
+    if (window.KoiSky) {
+      KoiSky.update(dt, pond, Date.now());
+      if ((skyT -= dt) <= 0) { skyT = 1; var lbl = KoiSky.label(); if (skyLbl.textContent !== lbl) skyLbl.textContent = lbl; }
+    }
+    playCues();
+    tellNews();
     render();
+  }
+  // the pond lists what made a sound since last frame; play them and empty the list
+  function tellNews() {
+    var n = pond.news;
+    if (!n.length) return;
+    var list = n.splice(0, n.length);
+    if (window.KoiMenu) KoiMenu.announce(list);
+    save();
+  }
+  function playCues() {
+    var c = pond.cues;
+    if (!c.length) return;
+    if (window.KoiAudio) for (var i = 0; i < c.length; i++) KoiAudio.cue(c[i]);
+    c.length = 0;
   }
   function start() { if (!raf && !document.hidden) { last = performance.now(); acc = 0; raf = requestAnimationFrame(frame); } }
   function stop() { if (raf) { cancelAnimationFrame(raf); raf = 0; } }
@@ -538,6 +587,25 @@
   canvas.addEventListener('pointercancel', function (e) { delete pointers[e.pointerId]; });
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
+  /* ---------- the buttons step aside when nobody is touching anything ---------- */
+  // after a few still seconds the shop and sound buttons fade out, leaving just the water;
+  // any mouse movement, touch or key brings them straight back
+  var CALM = 4000, calmT = 0;
+  function stir() {
+    if (document.body.classList.contains('calm')) document.body.classList.remove('calm');
+    clearTimeout(calmT);
+    calmT = setTimeout(function () {
+      if ((window.KoiShop && KoiShop.isOpen()) || (window.KoiMenu && KoiMenu.isOpen())) { stir(); return; }
+      if (document.activeElement && document.activeElement.closest && document.activeElement.closest('#shopBtn, #more')
+          && document.activeElement.matches(':focus-visible')) { stir(); return; }
+      document.body.classList.add('calm');
+    }, CALM);
+  }
+  ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(function (ev) {
+    window.addEventListener(ev, stir, { capture: true, passive: true });
+  });
+  stir();
+
   var rt = 0;
   window.addEventListener('resize', function () {
     clearTimeout(rt);
@@ -545,7 +613,14 @@
   });
 
   setup();
-  window.KoiGame = { pond: function () { return pond; }, save: save };
+  // a new pond: forget the save (and stop saving, so leaving the page does not write it back) and start again
+  function startOver() {
+    saving = false;
+    try { localStorage.removeItem(SAVE_KEY); } catch (err) {}
+    location.replace(location.pathname);
+  }
+  window.KoiGame = { pond: function () { return pond; }, save: save, startOver: startOver, saving: function () { return saving; },
+                     schemes: SCHEMES, scheme: function () { return scheme.id; }, setScheme: setScheme };
   if (demo) {
     // test-only: fixed pebbles, stepped synchronously so a screenshot has something to show
     var drops = [[0, 0.36, 0.46], [45, 0.63, 0.58], [100, 0.52, 0.27], [150, 0.2, 0.75]];
@@ -561,6 +636,7 @@
   start();
 })();
 </script>
-<script src="shop.js?v=4"></script>
+<script src="shop.js?v=8"></script>
+<script src="menu.js?v=8"></script>
 </body>
 </html>

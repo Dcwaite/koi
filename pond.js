@@ -231,6 +231,56 @@
   var PLANT_BACK = 0.5;     // a plant sells back for half
   var CM = 24;              // centimetres per unit of size, for the labels
 
+  /* ---------- breeding ----------
+     Two grown koi that have eaten well now and then have a baby. What it turns out to be leans toward its parents,
+     but the plants in the pond tip it: each plant favours a couple of varieties, and the rare ones (Tancho, Platinum Ogon)
+     only come from rare parents or the plants that call them. */
+  var ADULT_K = 1.0;        // big enough to have young
+  var GROWN_K = 1.5;        // "fully grown", for the koi book
+  var FRY_K = 0.4;          // a newborn
+  var FED = 0.35;           // both parents need to have eaten at least this well
+  var BREED_GAP = [60, 130];  // seconds between chances, while the pond has grown, fed koi in it
+  var PARENT_PULL = 4, PLANT_PULL = 1.5;
+  var NURSERY = {
+    pad:      ['chagoi', 'hariwake'],
+    white:    ['tancho', 'kohaku'],
+    pink:     ['kohaku', 'sanke'],
+    yellow:   ['yamabuki', 'hariwake'],
+    cress:    ['asagi', 'chagoi'],
+    chestnut: ['karasu', 'showa'],
+    lotus:    ['ogon', 'tancho']
+  };
+  /* Which plants favour a variety, for the hints in the book. */
+  function favouredBy(variety) {
+    var out = [];
+    for (var k in NURSERY) if (NURSERY[k].indexOf(variety) >= 0) out.push(k);
+    return out;
+  }
+  /* The odds for a baby of these two parents in this pond: { variety: weight }. */
+  function babyOdds(a, b, pads) {
+    var w = {};
+    w[a] = (w[a] || 0) + PARENT_PULL; w[b] = (w[b] || 0) + PARENT_PULL;
+    for (var i = 0; i < pads.length; i++) {
+      var n = NURSERY[pads[i].kind];
+      if (!n) continue;
+      for (var j = 0; j < n.length; j++) w[n[j]] = (w[n[j]] || 0) + PLANT_PULL / n.length;
+    }
+    return w;
+  }
+
+  /* Milestones, kept in the koi book alongside the varieties. */
+  var FEATS = [
+    { id: 'harvest', name: 'First harvest', about: 'Pick a ripe crop from the water.' },
+    { id: 'fry', name: 'New life', about: 'A baby koi is born in your pond.' },
+    { id: 'full', name: 'A full pond', about: 'Keep 12 koi at once.' },
+    { id: 'giant', name: 'A giant', about: 'Grow any koi to 41 cm.' },
+    { id: 'purse', name: 'A heavy purse', about: 'Hold 500 coins at once.' },
+    { id: 'keepAll', name: 'Every colour', about: 'Keep every variety of koi, at one time or another.' },
+    { id: 'bornFive', name: 'Pond-bred', about: 'Have five different varieties born in your pond.' },
+    { id: 'bornAll', name: 'Born of the pond', about: 'Have every variety born in your pond.' },
+    { id: 'growAll', name: 'Master of koi', about: 'Grow every variety to full size.' }
+  ];
+
   function Pond(W, H, seed) {
     this.rng = mulberry32(seed === undefined ? 1 : seed);
     this.W = W; this.H = H;
@@ -243,8 +293,14 @@
     this.food = [];
     this.sparks = [];
     this.pops = [];            // "+2 watercress" rising from a harvest, for the drawing
+    this.cues = [];            // things that make a sound, for the page to play: { k, x (0..1 across), s (0..1 size) }
     this.eaten = 0;
     this.coins = START_COINS;
+    this.book = {};            // variety -> { kept, born (count), grown }: the koi book
+    this.feats = {};           // milestone id -> true
+    this.news = [];            // what was just achieved, for the page to announce: { kind, id }
+    this.bornCount = 0;
+    this.breedTimer = 45;      // a first chance comes fairly soon; after that it is BREED_GAP
     this.basket = { cress: 0, chestnut: 0, lotus: 0 };
     this._makeGrid();
     this._sizes();
@@ -255,9 +311,16 @@
     }
     for (i = 0; i < 5; i++) {
       var a = rng() * 6.283, ph = rng() * 6.283, fk = 0.8 + rng() * 0.45;
-      this._placeFish(this._newFish(STARTERS[i], fk, a, ph));
+      this._keep(this._placeFish(this._newFish(STARTERS[i], fk, a, ph)));
     }
+    this.news = [];            // the starting koi are not news
   }
+
+  /* Something that makes a sound. The page plays and empties the list; it is capped so tests never grow it. */
+  Pond.prototype._cue = function (k, x, s) {
+    this.cues.push({ k: k, x: this.W ? clamp(x / this.W, 0, 1) : 0.5, s: s === undefined ? 0.5 : s });
+    if (this.cues.length > 24) this.cues.shift();
+  };
 
   Pond.prototype._newPad = function (kind, k, rot) {
     var pad = { x: 0, y: 0, vx: 0, vy: 0, rot: rot, rotv: 0, k: k, r: this.padBase * k, bob: 0, tx: 0, ty: 0,
@@ -325,6 +388,7 @@
     this.coins -= VARIETIES[variety].price;
     var rng = this.rng, f = this._placeFish(this._newFish(variety, YOUNG_K, rng() * 6.283, rng() * 6.283));
     f.glow = 1;
+    this._keep(f);
     this.grid.drop(this.gx(f.x), this.gy(f.y), 0.7);      // it is let into the water with a splash
     return { fish: f };
   };
@@ -371,7 +435,10 @@
     if (!(seconds > 0)) return;
     for (var i = 0; i < this.pads.length; i++) {
       var p = this.pads[i], c = PLANTS[p.kind].crop;
-      if (c) p.grow = Math.min(c.grow, (p.grow || 0) + seconds);
+      if (!c) continue;
+      var was = p.grow || 0;
+      p.grow = Math.min(c.grow, was + seconds);
+      if (was < c.grow && p.grow >= c.grow && seconds < 1) this._cue('ripe', p.x, 0.5);
     }
   };
   /* The ripe crop under (x, y), if any: the nearest whose leaves the point is on (with a little give for fingers). */
@@ -393,6 +460,7 @@
     p.grow = 0;
     this.basket[p.kind] = (this.basket[p.kind] || 0) + c.yield;
     this.harvested = (this.harvested || 0) + c.yield;
+    this._feat('harvest');
     this.pops.push({ x: p.x, y: p.y - p.r * 0.4, n: c.yield, kind: p.kind, age: 0 });
     for (var s = 0; s < 10; s++) {
       var sa = rng() * 6.283, sv = 18 + rng() * 30;
@@ -400,6 +468,7 @@
     }
     this.grid.drop(this.gx(p.x), this.gy(p.y), 0.35);
     this.sinceTouch = 0;
+    this._cue('harvest', p.x, 0.5);
     return { kind: p.kind, n: c.yield };
   };
   Pond.prototype.basketCount = function () {
@@ -416,10 +485,101 @@
 
   /* ---------- saving ---------- */
   /* now: the wall-clock time in ms, so crops can keep growing while the page is closed. */
+  /* ---------- the koi book ---------- */
+  Pond.prototype._entry = function (v) { return this.book[v] || (this.book[v] = { kept: false, born: 0, grown: false }); };
+  Pond.prototype._feat = function (id) {
+    if (this.feats[id]) return;
+    this.feats[id] = true;
+    this.news.push({ kind: 'feat', id: id });
+  };
+  Pond.prototype._checkFeats = function () {
+    var kept = 0, born = 0, grown = 0;
+    for (var i = 0; i < VARIETY_ORDER.length; i++) {
+      var e = this.book[VARIETY_ORDER[i]];
+      if (!e) continue;
+      if (e.kept) kept++;
+      if (e.born) born++;
+      if (e.grown) grown++;
+    }
+    var n = VARIETY_ORDER.length;
+    if (kept >= n) this._feat('keepAll');
+    if (born >= 5) this._feat('bornFive');
+    if (born >= n) this._feat('bornAll');
+    if (grown >= n) this._feat('growAll');
+    if (this.fish.length >= MAX_FISH) this._feat('full');
+    if (this.coins >= 500) this._feat('purse');
+  };
+  /* A koi has joined the pond (bought, born, or there from the start). */
+  Pond.prototype._keep = function (f) {
+    var e = this._entry(f.variety);
+    if (!e.kept) { e.kept = true; this.news.push({ kind: 'kept', id: f.variety }); }
+    this._checkFeats();
+    return f;
+  };
+  /* A koi has eaten and grown a little. */
+  Pond.prototype._grew = function (f) {
+    if (f.kt >= GROWN_K) {
+      var e = this._entry(f.variety);
+      if (!e.grown) { e.grown = true; this.news.push({ kind: 'grown', id: f.variety }); this._checkFeats(); }
+    }
+    if (f.kt >= 1.7) this._feat('giant');
+  };
+  /* The odds for a baby between two varieties in this pond, as fractions: [{ variety, p }], likeliest first. */
+  Pond.prototype.babyOdds = function (a, b) {
+    var w = babyOdds(a, b, this.pads), sum = 0, out = [], k;
+    for (k in w) sum += w[k];
+    for (k in w) out.push({ variety: k, p: w[k] / sum });
+    return out.sort(function (x, y) { return y.p - x.p; });
+  };
+  /* The grown, well-fed koi that could have young right now. */
+  Pond.prototype.parents = function () {
+    return this.fish.filter(function (f) { return f.kt >= ADULT_K && f.full >= FED; });
+  };
+  Pond.prototype._breed = function (dt) {
+    this.breedTimer -= dt;
+    if (this.breedTimer > 0) return;
+    var rng = this.rng;
+    this.breedTimer = BREED_GAP[0] + rng() * (BREED_GAP[1] - BREED_GAP[0]);
+    this.breed();
+  };
+  /* Two parents have a baby, if there are two and there is room. Returns the baby, or null. */
+  Pond.prototype.breed = function () {
+    if (this.fish.length >= MAX_FISH) return null;
+    var ps = this.parents(), rng = this.rng;
+    if (ps.length < 2) return null;
+    var i = (rng() * ps.length) | 0, j = (rng() * (ps.length - 1)) | 0;
+    if (j >= i) j++;
+    var a = ps[i], b = ps[j];
+    var w = babyOdds(a.variety, b.variety, this.pads), sum = 0, k;
+    for (k in w) sum += w[k];
+    var r = rng() * sum, pick = a.variety;
+    for (k in w) { r -= w[k]; if (r <= 0) { pick = k; break; } }
+    a.full -= 0.25; b.full -= 0.25;
+    var f = this._newFish(pick, FRY_K, rng() * 6.283, rng() * 6.283);
+    var M = this._margin(f);
+    f.x = clamp((a.x + b.x) / 2, M, this.W - M); f.y = clamp((a.y + b.y) / 2, M, this.H - M);
+    f.tx = f.x; f.ty = f.y;
+    f.glow = 1; f.full = 0.5;
+    this.fish.push(f);
+    this.bornCount++;
+    var e = this._entry(pick);
+    e.born++; e.kept = true;
+    this.news.push({ kind: 'born', id: pick, first: e.born === 1 });
+    this._feat('fry');
+    this._keep(f);
+    this.grid.drop(this.gx(f.x), this.gy(f.y), 0.45);
+    for (var s = 0; s < 14; s++) {
+      var sa = rng() * 6.283, sv = 12 + rng() * 26;
+      this.sparks.push({ x: f.x, y: f.y, vx: Math.cos(sa) * sv, vy: Math.sin(sa) * sv, age: 0, life: 0.8 + rng() * 0.8 });
+    }
+    this._cue('fry', f.x, 0.5);
+    return f;
+  };
+
   Pond.prototype.toState = function (now) {
     var W = this.W, H = this.H;
     return {
-      v: 1, t: now || 0, coins: this.coins,
+      v: 1, t: now || 0, coins: this.coins, book: this.book, feats: this.feats, born: this.bornCount,
       basket: { cress: this.basket.cress || 0, chestnut: this.basket.chestnut || 0, lotus: this.basket.lotus || 0 },
       fish: this.fish.map(function (f) { return { v: f.variety, k: +f.k.toFixed(4), kt: +f.kt.toFixed(4), full: +f.full.toFixed(3) }; }),
       pads: this.pads.map(function (p) { return { kind: p.kind, k: +p.k.toFixed(3), rot: +p.rot.toFixed(3), x: +(p.x / W).toFixed(4), y: +(p.y / H).toFixed(4), grow: +(p.grow || 0).toFixed(1) }; })
@@ -448,6 +608,16 @@
     }
     var b = s.basket || {};
     for (var kind in PRODUCE) this.basket[kind] = Math.max(0, Math.floor(+b[kind] || 0));
+    // the koi book; an older save has none, so it starts from the koi in the pond
+    this.book = {}; this.feats = {};
+    if (s.book && typeof s.book === 'object') for (var v in s.book) {
+      if (!VARIETIES[v] || !s.book[v]) continue;
+      this.book[v] = { kept: !!s.book[v].kept, born: Math.max(0, Math.floor(+s.book[v].born || 0)), grown: !!s.book[v].grown };
+    }
+    if (s.feats && typeof s.feats === 'object') for (var id in s.feats) if (s.feats[id]) this.feats[id] = true;
+    this.bornCount = Math.max(0, Math.floor(+s.born || 0));
+    for (i = 0; i < this.fish.length; i++) this._entry(this.fish[i].variety).kept = true;
+    this.news = [];
     if (now && s.t && now > s.t) this.ripen((now - s.t) / 1000);
     this._constrain();
     return true;
@@ -496,6 +666,7 @@
     }
     while (this.food.length > MAX_FOOD) this.food.shift();
     this.grid.drop(this.gx(x), this.gy(y), 0.22);
+    this._cue('food', x, count / PINCH);
     this.sinceTouch = 0;
     this.idleTimer = 5 + rng() * 8;
     this._keepFood();
@@ -575,6 +746,7 @@
       g.bump(ax + (bx - ax) * t, ay + (by - ay) * t, 1.7, amp);
     }
     this.sinceTouch = 0;
+    this._cue('wake', x1, Math.min(1, d / 6));
     this._startle(x1, y1, this.fishBase * 0.9, false);
   };
 
@@ -644,8 +816,10 @@
             f.full = Math.min(1.2, f.full + BITE);
             f.chase = 0;
             f.kt += (K_MAX - f.kt) * GROW;
+            this._grew(f);
             f.glow = 1;
             this.grid.drop(this.gx(t.x), this.gy(t.y), 0.3);   // the little ring of a mouth at the surface
+            this._cue('eat', t.x, clamp((f.kt - 0.5) / (K_MAX - 0.5), 0, 1));
             for (var s = 0; s < 6; s++) {                        // a few golden motes where it ate
               var sa = rng() * 6.283, sv = 10 + rng() * 22;
               this.sparks.push({ x: t.x, y: t.y, vx: Math.cos(sa) * sv, vy: Math.sin(sa) * sv, age: 0, life: 0.7 + rng() * 0.6 });
@@ -799,9 +973,13 @@
     this.idleEvents++;
     if (rng() < 0.45) {
       var f = this.fish[(rng() * this.fish.length) | 0];
-      this.poke(f.x + Math.cos(f.a) * f.len * 0.3, f.y + Math.sin(f.a) * f.len * 0.3, 0.55, true);
+      var mx = f.x + Math.cos(f.a) * f.len * 0.3;
+      this.poke(mx, f.y + Math.sin(f.a) * f.len * 0.3, 0.55, true);
+      this._cue('sip', mx, 0.6);
     } else {
-      this.poke(this.W * (0.06 + rng() * 0.88), this.H * (0.06 + rng() * 0.88), 0.4, true);
+      var dx_ = this.W * (0.06 + rng() * 0.88);
+      this.poke(dx_, this.H * (0.06 + rng() * 0.88), 0.4, true);
+      this._cue('drip', dx_, 0.4);
     }
   };
 
@@ -820,6 +998,8 @@
       s.vx *= d; s.vy *= d; s.x += s.vx * DT; s.y += s.vy * DT;
     }
     this.ripen(DT);
+    this._breed(DT);
+    if (this.step_ % 60 === 0) this._checkFeats();   // coins and pond size, once a second
     for (i = this.pops.length - 1; i >= 0; i--) {
       this.pops[i].age += DT;
       if (this.pops[i].age > 1.8) this.pops.splice(i, 1);
@@ -831,7 +1011,8 @@
               VARIETIES: VARIETIES, VARIETY_ORDER: VARIETY_ORDER, PLANTS: PLANTS, PLANT_ORDER: PLANT_ORDER,
               MAX_FISH: MAX_FISH, MAX_PADS: MAX_PADS, START_COINS: START_COINS, YOUNG_K: YOUNG_K,
               fishValue: fishValue, padValue: padValue, sizeCm: sizeCm,
-              CROP_ORDER: CROP_ORDER, PRODUCE: PRODUCE, isCrop: isCrop, ripeness: ripeness };
+              CROP_ORDER: CROP_ORDER, PRODUCE: PRODUCE, isCrop: isCrop, ripeness: ripeness,
+              ADULT_K: ADULT_K, GROWN_K: GROWN_K, FRY_K: FRY_K, NURSERY: NURSERY, FEATS: FEATS, favouredBy: favouredBy };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PondSim = api;
 })(typeof window !== 'undefined' ? window : this);
