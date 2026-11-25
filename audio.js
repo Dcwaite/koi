@@ -41,10 +41,26 @@
   var buf = {}, loading = {}, lastPick = {}, lastAt = {};
   var started = false;
 
+  /* Every sound comes as .ogg and .mp3. iPhones and iPads can't always open .ogg, so they get the mp3,
+     and if an .ogg ever fails to open, the mp3 is tried before giving up. */
+  var EXT = (function () {
+    try { return new Audio().canPlayType('audio/ogg; codecs="vorbis"') ? 'ogg' : 'mp3'; } catch (e) { return 'mp3'; }
+  })();
+  function fetchDecode(name, ext) {
+    return fetch(DIR + name + '.' + ext).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.arrayBuffer();
+    }).then(function (a) {
+      return new Promise(function (ok, no) {
+        var p = ctx.decodeAudioData(a, ok, no);
+        if (p && p.catch) p.catch(no);
+      });
+    });
+  }
   function load(name) {
     if (loading[name]) return loading[name];
-    loading[name] = fetch(DIR + name + '.ogg').then(function (r) { return r.arrayBuffer(); })
-      .then(function (a) { return new Promise(function (ok, no) { ctx.decodeAudioData(a, ok, no); }); })
+    loading[name] = fetchDecode(name, EXT)
+      .catch(function () { if (EXT === 'ogg') { EXT = 'mp3'; return fetchDecode(name, 'mp3'); } throw 0; })
       .then(function (b) { buf[name] = b; })
       .catch(function () { loading[name] = null; });
     return loading[name];
@@ -64,11 +80,37 @@
     var cv = ctx.createConvolver(); cv.buffer = ir; return cv;
   }
 
-  function unlock() {
+  /* An iPhone with its ring switch on silent mutes web sound unless the page says it plays media,
+     the way a music app does. Newer iPhones take audioSession; older ones need a silent <audio> playing. */
+  var keepAlive = null;
+  function playLikeMedia() {
+    try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; } } catch (e) {}
+    if (!/iP(hone|ad|od)|Macintosh/.test(navigator.userAgent) || !('ontouchend' in document)) return;
+    if (!keepAlive) {
+      keepAlive = document.createElement('audio');
+      keepAlive.setAttribute('x-webkit-airplay', 'deny');
+      keepAlive.preload = 'auto'; keepAlive.loop = true; keepAlive.src = silentWav();
+    }
+    var p = keepAlive.play(); if (p && p.catch) p.catch(function () {});
+  }
+  function silentWav() {                         // half a second of silence, 8 kHz mono
+    var n = 4000, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
+    function str(o, t) { for (var i = 0; i < t.length; i++) b[o + i] = t.charCodeAt(i); }
+    str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVEfmt '); v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true);
+    v.setUint16(32, 1, true); v.setUint16(34, 8, true); str(36, 'data'); v.setUint32(40, n, true);
+    for (var i = 0; i < n; i++) b[44 + i] = 128;
+    var bin = ''; for (i = 0; i < b.length; i++) bin += String.fromCharCode(b[i]);
+    return 'data:audio/wav;base64,' + btoa(bin);
+  }
+
+  function unlock(e) {
+    if (e && e.type === 'pointerdown' && e.pointerType !== 'mouse') return;   // phones: wait for the finger to lift
     if (!started) {
       var AC = root.AudioContext || root.webkitAudioContext;
       if (!AC) return;
       started = true;
+      playLikeMedia();
       ctx = new AC();
       master = ctx.createGain(); master.gain.value = 1; master.connect(ctx.destination);
       sfxBus = ctx.createGain(); sfxBus.gain.value = gainOf('sound'); sfxBus.connect(master);
@@ -85,7 +127,13 @@
       music.next = ctx.currentTime + 2.5;
       setInterval(update, 300);
     }
-    if (ctx && ctx.state === 'suspended' && !document.hidden && !paused) ctx.resume();
+    if (!ctx || document.hidden || paused) return;
+    if (ctx.state !== 'running') {
+      playLikeMedia();
+      ctx.resume();
+      // a moment of silence, started inside the tap, is what finally opens the sound on older iPhones
+      var s = ctx.createBufferSource(); s.buffer = ctx.createBuffer(1, 1, 22050); s.connect(ctx.destination); s.start(0);
+    }
   }
 
   /* One sound. A group name ("plop") picks one of plop1..4, never the same twice running.
@@ -353,15 +401,17 @@
   function pause(p) {
     paused = !!p;
     if (!ctx) return;
-    if (paused) ctx.suspend(); else if (!document.hidden) ctx.resume();
+    if (paused) { ctx.suspend(); if (keepAlive) keepAlive.pause(); }
+    else if (!document.hidden) { ctx.resume(); if (keepAlive) playLikeMedia(); }
   }
 
   // the first touch, click or key anywhere wakes the sound up
-  ['pointerdown', 'keydown', 'touchend'].forEach(function (ev) { root.addEventListener(ev, unlock, true); });
+  ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click'].forEach(function (ev) { root.addEventListener(ev, unlock, true); });
   // quiet while the page is in the background
   document.addEventListener('visibilitychange', function () {
     if (!ctx) return;
-    if (document.hidden) ctx.suspend(); else if (!paused) ctx.resume();
+    if (document.hidden) { ctx.suspend(); if (keepAlive) keepAlive.pause(); }
+    else if (!paused) { ctx.resume(); if (keepAlive) playLikeMedia(); }
   });
 
   root.KoiAudio = {
@@ -370,7 +420,7 @@
     theme: function () { return themeId; },
     volumes: function () { return { sound: vol.sound, water: vol.water, music: vol.music }; },
     state: function () {
-      return { started: started, ctx: ctx ? ctx.state : 'none', loaded: Object.keys(buf).length, theme: themeId,
+      return { started: started, ctx: ctx ? ctx.state : 'none', ext: EXT, loaded: Object.keys(buf).length, theme: themeId,
                music: music.playing, musicNext: music.next, now: ctx ? ctx.currentTime : 0 };
     }
   };
