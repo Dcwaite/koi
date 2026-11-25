@@ -216,7 +216,85 @@ feedRun(1920, 1080, 3);
   check('sparks are cleaned up', p.sparks.length < 20, p.sparks.length + ' left');
 })();
 
-// ---- 8. timing
+// ---- 8. the shop: buying, selling, limits, and the save
+(function () {
+  var p = new S.Pond(1000, 720, 12), r, i;
+  check('start with ' + S.START_COINS + ' coins, 5 koi, 4 plants', p.coins === S.START_COINS && p.fish.length === 5 && p.pads.length === 4);
+  r = p.buyFish('ogon');
+  check('cannot buy what you cannot afford', !!r.error && p.coins === S.START_COINS && p.fish.length === 5, r.error);
+  r = p.buyFish('chagoi');
+  check('buying a koi takes its price and adds a young koi', !r.error && p.coins === S.START_COINS - 20 && p.fish.length === 6 && r.fish.k === S.YOUNG_K);
+  var young = S.fishValue(r.fish);
+  check('a koi sells for less than it cost while it is young', young < 20, 'young Chagoi fetches ' + young);
+  r.fish.kt = r.fish.k = S.K_MAX;
+  check('a fully grown koi fetches several times its price', S.fishValue(r.fish) > 20 * 3, 'grown Chagoi fetches ' + S.fishValue(r.fish));
+  var before = p.coins, worth = S.fishValue(r.fish);
+  var sold = p.sellFish(r.fish);
+  check('selling pays its value and takes it away', sold.paid === worth && p.coins === before + worth && p.fish.indexOf(r.fish) < 0);
+  p.coins = 10000;
+  for (i = 0; i < 20; i++) p.buyFish('kohaku');
+  check('the pond holds at most ' + S.MAX_FISH + ' koi', p.fish.length === S.MAX_FISH && p.canBuyFish('kohaku') === 'Pond is full');
+  for (i = 0; i < 20; i++) p.buyPlant('pink');
+  check('and at most ' + S.MAX_PADS + ' plants', p.pads.length === S.MAX_PADS && p.canBuyPlant('pad') === 'No room left');
+  var pad = p.pads[0], pv = S.padValue(pad), c0 = p.coins;
+  check('a plant sells back for half', p.sellPad(pad).paid === pv && p.coins === c0 + pv && pv === Math.round(S.PLANTS[pad.kind].price / 2));
+  while (p.fish.length > 1) p.sellFish(p.fish[0]);
+  check('the last koi cannot be sold', !!p.sellFish(p.fish[0]).error && p.fish.length === 1);
+  for (i = 0; i < 600; i++) p.step();
+  check('pads never overlap after a buying spree', p.pads.every(function (a, k) {
+    return p.pads.every(function (b, j) { return j <= k || Math.hypot(a.x - b.x, a.y - b.y) >= a.r + b.r - 0.5; });
+  }));
+
+  var q = new S.Pond(1000, 720, 13);
+  q.coins = 77; q.buyFish('tancho'); q.fish[0].kt = 1.5; q.buyPlant('yellow');
+  var saved = JSON.parse(JSON.stringify(q.toState()));
+  var back = new S.Pond(390, 844, 99);
+  var ok = back.fromState(saved);
+  check('a save loads back the same koi, sizes, plants and coins', ok && back.coins === q.coins && back.fish.length === q.fish.length &&
+    back.fish.every(function (f, k) { return f.variety === q.fish[k].variety && Math.abs(f.kt - q.fish[k].kt) < 1e-3; }) &&
+    back.pads.length === q.pads.length && back.pads.some(function (d) { return d.kind === 'yellow'; }));
+  check('a broken save is ignored', !new S.Pond(800, 600, 1).fromState({ v: 1, fish: [{ v: 'nope', k: 1 }], pads: [] }) &&
+    !new S.Pond(800, 600, 1).fromState('junk'));
+})();
+
+// ---- 9. crops: they ripen, are picked with a tap, and the harvest sells
+(function () {
+  var p = new S.Pond(1000, 720, 21), i;
+  p.coins = 1000;
+  var cress = p.buyPlant('cress').pad, lotus = p.buyPlant('lotus').pad;
+  check('a new crop starts unripe, and a tap on it does not pick it', S.ripeness(cress) === 0 && p.harvestAt(cress.x, cress.y) === null);
+  for (i = 0; i < 60 * 89; i++) p.step();
+  check('watercress is not ripe a second early', S.ripeness(cress) < 1 && !p.ripeCropAt(cress.x, cress.y));
+  for (i = 0; i < 60 * 2; i++) p.step();
+  check('watercress ripens in 90 s', S.ripeness(cress) === 1);
+  var miss = p.harvestAt(cress.x + Math.max(cress.r * 1.3, 30), cress.y + Math.max(cress.r * 1.3, 30));
+  check('a tap beside a ripe crop misses it', miss === null && S.ripeness(cress) === 1);
+  var h = p.harvestAt(cress.x + cress.r * 0.5, cress.y);
+  check('a tap on a ripe crop picks it into the basket and it starts again',
+    h && h.kind === 'cress' && h.n === 2 && p.basket.cress === 2 && S.ripeness(cress) === 0 && p.pops.length === 1);
+  for (i = 0; i < 60 * 200; i++) p.step();
+  check('a ripe crop waits, it does not pile up', S.ripeness(cress) === 1 && p.basket.cress === 2);
+  var before = p.coins, sold = p.sellProduce('cress');
+  check('the harvest sells for its value', sold.paid === 2 * S.PRODUCE.cress.value && p.coins === before + sold.paid && p.basket.cress === 0);
+  check('nothing to sell is refused', !!p.sellProduce('cress').error);
+  check('lotus is still growing after 5 min', S.ripeness(lotus) > 0.5 && S.ripeness(lotus) < 1, 'ripeness ' + S.ripeness(lotus).toFixed(2));
+
+  // closing the page: crops keep growing from the saved time
+  p.harvestAt(cress.x, cress.y);
+  p.basket.lotus = 3;
+  var t0 = 1700000000000, saved = JSON.parse(JSON.stringify(p.toState(t0)));
+  var q = new S.Pond(800, 600, 5);
+  q.fromState(saved, t0 + 60 * 1000);
+  var qc = q.pads.filter(function (d) { return d.kind === 'cress'; })[0], ql = q.pads.filter(function (d) { return d.kind === 'lotus'; })[0];
+  check('crops keep growing while the page is closed', S.ripeness(qc) > 0.6 && S.ripeness(qc) < 0.7 && q.basket.lotus === 3,
+    'cress ripeness after 60 s away ' + S.ripeness(qc).toFixed(2));
+  var r = new S.Pond(800, 600, 5);
+  r.fromState(saved, t0 + 3 * 3600 * 1000);
+  check('and wait, ripe, after a long time away', r.pads.filter(function (d) { return S.isCrop(d.kind); }).every(function (d) { return S.ripeness(d) === 1; }));
+  check('pops fade away', (function () { for (var k = 0; k < 200; k++) p.step(); return p.pops.length === 0; })());
+})();
+
+// ---- 10. timing
 (function () {
   [[1000, 720], [375, 812], [1920, 1080]].forEach(function (s) {
     var p = new S.Pond(s[0], s[1], 3), g = p.grid, out = new Uint8ClampedArray(g.w * g.h * 4), i, n = 600;

@@ -181,13 +181,55 @@
   var GROW = 0.025;         // share of the remaining way to K_MAX that one pellet gives (about ten full feedings to get near it)
   var GLOW = 1.4;           // seconds the after-eating glow lasts
 
-  var FISH_LOOKS = [
-    { body: '#c47a45', patch: '#d9d1bd', spots: [[0.2, 0.5, 0.9], [0.62, -0.4, 0.8]] },
-    { body: '#d8d1be', patch: '#bf6a38', spots: [[0.12, 0.0, 1.0], [0.5, 0.6, 0.9], [0.8, -0.2, 0.7]] },
-    { body: '#3b4047', patch: '#5e4f3d', spots: [[0.35, -0.5, 0.8]] },
-    { body: '#c6a565', patch: '#ddd6c2', spots: [[0.45, 0.4, 1.0]] },
-    { body: '#d5cdb9', patch: '#2f3237', spots: [[0.25, -0.6, 0.8], [0.6, 0.5, 0.9], [0.1, 0.5, 0.5]], patch2: '#b9683a' }
-  ];
+  /* Koi varieties. A look is a body colour plus patches: each spot is
+     [place along the body 0..1, side to side -1..1, size]. metal = a pearly sheen. price is for a young koi. */
+  var VARIETIES = {
+    chagoi:   { name: 'Chagoi', price: 20, look: { body: '#8c6a45', patch: '#a07c52', spots: [[0.35, 0.0, 0.7]] } },
+    karasu:   { name: 'Karasu', price: 25, look: { body: '#3b4047', patch: '#5e4f3d', spots: [[0.35, -0.5, 0.8]] } },
+    kohaku:   { name: 'Kohaku', price: 30, look: { body: '#d8d1be', patch: '#bf6a38', spots: [[0.12, 0.0, 1.0], [0.5, 0.6, 0.9], [0.8, -0.2, 0.7]] } },
+    hariwake: { name: 'Orange Hariwake', price: 35, look: { body: '#c47a45', patch: '#d9d1bd', spots: [[0.2, 0.5, 0.9], [0.62, -0.4, 0.8]], metal: true } },
+    yamabuki: { name: 'Yamabuki', price: 40, look: { body: '#c6a565', patch: '#ddd6c2', spots: [[0.45, 0.4, 1.0]], metal: true } },
+    asagi:    { name: 'Asagi', price: 45, look: { body: '#7d93a0', patch: '#c86a3c', spots: [[0.3, 0.95, 0.75], [0.3, -0.95, 0.75], [0.62, 0.95, 0.7], [0.62, -0.95, 0.7]] } },
+    sanke:    { name: 'Sanke', price: 55, look: { body: '#d5cdb9', patch: '#2f3237', spots: [[0.25, -0.6, 0.8], [0.6, 0.5, 0.9], [0.1, 0.5, 0.5]], patch2: '#b9683a' } },
+    showa:    { name: 'Showa', price: 65, look: { body: '#262a30', patch: '#c55a34', spots: [[0.15, 0.3, 0.9], [0.45, -0.5, 1.0], [0.75, 0.3, 0.8]], patch2: '#e2dccb' } },
+    tancho:   { name: 'Tancho', price: 80, look: { body: '#e4ddcc', patch: '#c4392f', spots: [[0.07, 0.0, 0.7]] } },
+    ogon:     { name: 'Platinum Ogon', price: 100, look: { body: '#e6e2d6', patch: '#f2efe6', spots: [], metal: true } }
+  };
+  var VARIETY_ORDER = ['chagoi', 'karasu', 'kohaku', 'hariwake', 'yamabuki', 'asagi', 'sanke', 'showa', 'tancho', 'ogon'];
+  var STARTERS = ['hariwake', 'kohaku', 'karasu', 'yamabuki', 'sanke'];
+
+  /* Plants for the water. flower: [outer petals, inner petals]. */
+  var PLANTS = {
+    pad:    { name: 'Lily pad', price: 10, flower: null },
+    white:  { name: 'White water lily', price: 25, flower: ['#cdb9b4', '#e3d9cd'] },
+    pink:   { name: 'Pink water lily', price: 35, flower: ['#c4808f', '#e8bcc5'] },
+    yellow: { name: 'Yellow water lily', price: 35, flower: ['#c9a650', '#ecd896'] }
+  };
+  var PLANT_ORDER = ['pad', 'white', 'pink', 'yellow'];
+
+  /* Crops: plants that ripen on the water. A ripe crop is picked with a tap, which puts its yield in
+     the basket and starts it growing again. grow is in seconds of real time, and crops keep growing
+     while you are away (up to ripe: they wait for you, they do not pile up). */
+  PLANTS.cress    = { name: 'Watercress', price: 30, flower: null, crop: { grow: 90, yield: 2 } };
+  PLANTS.chestnut = { name: 'Water chestnut', price: 60, flower: null, crop: { grow: 240, yield: 3 } };
+  PLANTS.lotus    = { name: 'Lotus', price: 120, flower: null, crop: { grow: 480, yield: 2 } };
+  var CROP_ORDER = ['cress', 'chestnut', 'lotus'];
+  /* What a harvest gives, keyed by the crop that grows it. value is what the dealer pays for one. */
+  var PRODUCE = {
+    cress:    { name: 'Watercress', one: 'bunch of watercress', many: 'bunches of watercress', unit: 'bunches', value: 3 },
+    chestnut: { name: 'Water chestnuts', one: 'water chestnut', many: 'water chestnuts', unit: 'nuts', value: 6 },
+    lotus:    { name: 'Lotus pods', one: 'lotus pod', many: 'lotus pods', unit: 'pods', value: 20 }
+  };
+  function isCrop(kind) { return !!(PLANTS[kind] && PLANTS[kind].crop); }
+  function ripeness(p) { var c = PLANTS[p.kind].crop; return c ? Math.min(1, (p.grow || 0) / c.grow) : 0; }
+
+  /* The shop. */
+  var MAX_FISH = 12, MAX_PADS = 12;
+  var START_COINS = 40;
+  var YOUNG_K = 0.65;       // the size of a koi from the shop
+  var SELL_SHARE = 0.6;     // a koi sells for this share of its price at shop size, times its growth squared
+  var PLANT_BACK = 0.5;     // a plant sells back for half
+  var CM = 24;              // centimetres per unit of size, for the labels
 
   function Pond(W, H, seed) {
     this.rng = mulberry32(seed === undefined ? 1 : seed);
@@ -200,44 +242,216 @@
     this.pads = [];
     this.food = [];
     this.sparks = [];
+    this.pops = [];            // "+2 watercress" rising from a harvest, for the drawing
     this.eaten = 0;
+    this.coins = START_COINS;
+    this.basket = { cress: 0, chestnut: 0, lotus: 0 };
     this._makeGrid();
     this._sizes();
-    var rng = this.rng, i, k, t;
+    var rng = this.rng, i;
     for (i = 0; i < 4; i++) {
-      var pad = { x: 0, y: 0, vx: 0, vy: 0, rot: rng() * 6.283, rotv: 0, k: 0.78 + rng() * 0.5,
-                  r: 0, bob: 0, tx: 0, ty: 0, flower: i === 1, tone: i % 3 };
-      pad.r = this.padBase * pad.k;
-      for (t = 0; t < 80; t++) {
-        pad.x = pad.r + 8 + rng() * (W - 2 * pad.r - 16);
-        pad.y = pad.r + 8 + rng() * (H - 2 * pad.r - 16);
-        var ok = true;
-        for (k = 0; k < this.pads.length; k++) {
-          var q = this.pads[k];
-          if (Math.hypot(q.x - pad.x, q.y - pad.y) < q.r + pad.r + 14) ok = false;
-        }
-        if (ok) break;
-      }
-      this.pads.push(pad);
+      var rot = rng() * 6.283, pk = 0.78 + rng() * 0.5;
+      this._placePad(this._newPad(i === 1 ? 'white' : 'pad', pk, rot));
     }
     for (i = 0; i < 5; i++) {
-      var f = { x: 0, y: 0, a: rng() * 6.283, v: 0, turn: 0, wa: 0, phase: rng() * 6.283,
-                k: 0.8 + rng() * 0.45, len: 0, base: 0, mode: WANDER, timer: 0, t0: 1,
-                fx: 0, fy: 0, tx: 0, ty: 0, look: FISH_LOOKS[i % FISH_LOOKS.length], idx: i,
-                full: 0.3, notice: -1, chase: 0, cool: 0, target: null, glow: 0, kt: 0 };
-      f.kt = f.k;
-      f.len = this.fishBase * f.k; f.base = f.len * 0.34; f.v = f.base;
-      for (t = 0; t < 80; t++) {
-        f.x = W * (0.15 + rng() * 0.7); f.y = H * (0.15 + rng() * 0.7);
-        var far = true;
-        for (k = 0; k < this.fish.length; k++) {
-          if (Math.hypot(this.fish[k].x - f.x, this.fish[k].y - f.y) < f.len * 1.5) far = false;
-        }
-        if (far) break;
-      }
-      this.fish.push(f);
+      var a = rng() * 6.283, ph = rng() * 6.283, fk = 0.8 + rng() * 0.45;
+      this._placeFish(this._newFish(STARTERS[i], fk, a, ph));
     }
   }
+
+  Pond.prototype._newPad = function (kind, k, rot) {
+    var pad = { x: 0, y: 0, vx: 0, vy: 0, rot: rot, rotv: 0, k: k, r: this.padBase * k, bob: 0, tx: 0, ty: 0,
+                kind: kind, flower: PLANTS[kind].flower, tone: this.pads.length % 3, grow: 0 };
+    return pad;
+  };
+  /* Put a pad somewhere clear of the others (if there is room) and add it. */
+  Pond.prototype._placePad = function (pad) {
+    var rng = this.rng, W = this.W, H = this.H;
+    for (var t = 0; t < 120; t++) {
+      pad.x = pad.r + 8 + rng() * Math.max(1, W - 2 * pad.r - 16);
+      pad.y = pad.r + 8 + rng() * Math.max(1, H - 2 * pad.r - 16);
+      var ok = true;
+      for (var k = 0; k < this.pads.length; k++) {
+        var q = this.pads[k];
+        if (Math.hypot(q.x - pad.x, q.y - pad.y) < q.r + pad.r + 14) { ok = false; break; }
+      }
+      if (ok) break;
+    }
+    this.pads.push(pad);
+    return pad;
+  };
+
+  Pond.prototype._newFish = function (variety, k, a, phase) {
+    var f = { x: 0, y: 0, a: a, v: 0, turn: 0, wa: 0, phase: phase,
+              k: k, len: 0, base: 0, mode: WANDER, timer: 0, t0: 1,
+              fx: 0, fy: 0, tx: 0, ty: 0, variety: variety, look: VARIETIES[variety].look, idx: this.fish.length,
+              full: 0.3, notice: -1, chase: 0, cool: 0, target: null, glow: 0, kt: k };
+    f.len = this.fishBase * f.k; f.base = f.len * 0.34; f.v = f.base;
+    return f;
+  };
+  Pond.prototype._placeFish = function (f) {
+    var rng = this.rng, W = this.W, H = this.H;
+    for (var t = 0; t < 80; t++) {
+      f.x = W * (0.15 + rng() * 0.7); f.y = H * (0.15 + rng() * 0.7);
+      var far = true;
+      for (var k = 0; k < this.fish.length; k++) {
+        if (Math.hypot(this.fish[k].x - f.x, this.fish[k].y - f.y) < f.len * 1.5) { far = false; break; }
+      }
+      if (far) break;
+    }
+    this.fish.push(f);
+    return f;
+  };
+
+  /* ---------- the shop: buying, selling, values ---------- */
+  function fishValue(f) {
+    var k = f.kt === undefined ? f.k : f.kt;
+    return Math.max(1, Math.round(VARIETIES[f.variety].price * SELL_SHARE * (k / YOUNG_K) * (k / YOUNG_K)));
+  }
+  function padValue(p) { return Math.max(1, Math.round(PLANTS[p.kind].price * PLANT_BACK)); }
+  function sizeCm(f) { return Math.round((f.kt === undefined ? f.k : f.kt) * CM); }
+
+  /* Each returns a reason it could not (a short sentence), or the thing bought or sold. */
+  Pond.prototype.canBuyFish = function (variety) {
+    var v = VARIETIES[variety];
+    if (!v) return 'No such koi.';
+    if (this.fish.length >= MAX_FISH) return 'Pond is full';
+    if (this.coins < v.price) return 'Need ' + (v.price - this.coins) + ' more';
+    return '';
+  };
+  Pond.prototype.buyFish = function (variety) {
+    var why = this.canBuyFish(variety);
+    if (why) return { error: why };
+    this.coins -= VARIETIES[variety].price;
+    var rng = this.rng, f = this._placeFish(this._newFish(variety, YOUNG_K, rng() * 6.283, rng() * 6.283));
+    f.glow = 1;
+    this.grid.drop(this.gx(f.x), this.gy(f.y), 0.7);      // it is let into the water with a splash
+    return { fish: f };
+  };
+  Pond.prototype.sellFish = function (f) {
+    var i = this.fish.indexOf(f);
+    if (i < 0) return { error: 'That koi is not in the pond.' };
+    if (this.fish.length <= 1) return { error: 'Keep at least one koi' };
+    var paid = fishValue(f);
+    this.fish.splice(i, 1);
+    for (var k = 0; k < this.fish.length; k++) this.fish[k].idx = k;
+    this.coins += paid;
+    this.grid.drop(this.gx(f.x), this.gy(f.y), 0.5);
+    return { paid: paid };
+  };
+  Pond.prototype.canBuyPlant = function (kind) {
+    var p = PLANTS[kind];
+    if (!p) return 'No such plant.';
+    if (this.pads.length >= MAX_PADS) return 'No room left';
+    if (this.coins < p.price) return 'Need ' + (p.price - this.coins) + ' more';
+    return '';
+  };
+  Pond.prototype.buyPlant = function (kind) {
+    var why = this.canBuyPlant(kind);
+    if (why) return { error: why };
+    this.coins -= PLANTS[kind].price;
+    var rng = this.rng, pad = this._placePad(this._newPad(kind, 0.8 + rng() * 0.4, rng() * 6.283));
+    this._constrain();
+    this.grid.drop(this.gx(pad.x), this.gy(pad.y), 0.5);
+    return { pad: pad };
+  };
+  Pond.prototype.sellPad = function (pad) {
+    var i = this.pads.indexOf(pad);
+    if (i < 0) return { error: 'That plant is not in the pond.' };
+    var paid = padValue(pad);
+    this.pads.splice(i, 1);
+    this.coins += paid;
+    this.grid.drop(this.gx(pad.x), this.gy(pad.y), 0.4);
+    return { paid: paid };
+  };
+
+  /* ---------- crops: ripening, picking, selling the harvest ---------- */
+  /* Time passing for the crops alone, e.g. while the page was hidden or closed. */
+  Pond.prototype.ripen = function (seconds) {
+    if (!(seconds > 0)) return;
+    for (var i = 0; i < this.pads.length; i++) {
+      var p = this.pads[i], c = PLANTS[p.kind].crop;
+      if (c) p.grow = Math.min(c.grow, (p.grow || 0) + seconds);
+    }
+  };
+  /* The ripe crop under (x, y), if any: the nearest whose leaves the point is on (with a little give for fingers). */
+  Pond.prototype.ripeCropAt = function (x, y) {
+    var best = null, bd = 1e9;
+    for (var i = 0; i < this.pads.length; i++) {
+      var p = this.pads[i];
+      if (!isCrop(p.kind) || ripeness(p) < 1) continue;
+      var d = Math.hypot(p.x - x, p.y - y), reach = Math.max(p.r * 1.15, 26);
+      if (d < reach && d < bd) { bd = d; best = p; }
+    }
+    return best;
+  };
+  /* Pick the ripe crop at (x, y). Returns { kind, n } or null if there is nothing ripe there. */
+  Pond.prototype.harvestAt = function (x, y) {
+    var p = this.ripeCropAt(x, y);
+    if (!p) return null;
+    var c = PLANTS[p.kind].crop, rng = this.rng;
+    p.grow = 0;
+    this.basket[p.kind] = (this.basket[p.kind] || 0) + c.yield;
+    this.harvested = (this.harvested || 0) + c.yield;
+    this.pops.push({ x: p.x, y: p.y - p.r * 0.4, n: c.yield, kind: p.kind, age: 0 });
+    for (var s = 0; s < 10; s++) {
+      var sa = rng() * 6.283, sv = 18 + rng() * 30;
+      this.sparks.push({ x: p.x, y: p.y, vx: Math.cos(sa) * sv, vy: Math.sin(sa) * sv, age: 0, life: 0.6 + rng() * 0.7 });
+    }
+    this.grid.drop(this.gx(p.x), this.gy(p.y), 0.35);
+    this.sinceTouch = 0;
+    return { kind: p.kind, n: c.yield };
+  };
+  Pond.prototype.basketCount = function () {
+    var n = 0; for (var k in this.basket) n += this.basket[k] || 0; return n;
+  };
+  Pond.prototype.sellProduce = function (kind) {
+    var n = this.basket[kind] || 0;
+    if (!PRODUCE[kind] || n <= 0) return { error: 'Nothing to sell.' };
+    var paid = n * PRODUCE[kind].value;
+    this.basket[kind] = 0;
+    this.coins += paid;
+    return { paid: paid, n: n };
+  };
+
+  /* ---------- saving ---------- */
+  /* now: the wall-clock time in ms, so crops can keep growing while the page is closed. */
+  Pond.prototype.toState = function (now) {
+    var W = this.W, H = this.H;
+    return {
+      v: 1, t: now || 0, coins: this.coins,
+      basket: { cress: this.basket.cress || 0, chestnut: this.basket.chestnut || 0, lotus: this.basket.lotus || 0 },
+      fish: this.fish.map(function (f) { return { v: f.variety, k: +f.k.toFixed(4), kt: +f.kt.toFixed(4), full: +f.full.toFixed(3) }; }),
+      pads: this.pads.map(function (p) { return { kind: p.kind, k: +p.k.toFixed(3), rot: +p.rot.toFixed(3), x: +(p.x / W).toFixed(4), y: +(p.y / H).toFixed(4), grow: +(p.grow || 0).toFixed(1) }; })
+    };
+  };
+  /* Rebuild the koi and plants from a saved state. Anything unreadable is skipped. Returns false if nothing usable. */
+  Pond.prototype.fromState = function (s, now) {
+    if (!s || s.v !== 1 || !Array.isArray(s.fish) || !Array.isArray(s.pads)) return false;
+    var fish = s.fish.filter(function (f) { return f && VARIETIES[f.v] && isFinite(f.k); }).slice(0, MAX_FISH);
+    if (!fish.length) return false;
+    var rng = this.rng, i;
+    this.fish = []; this.pads = []; this.food = []; this.sparks = [];
+    this.coins = Math.max(0, Math.floor(+s.coins || 0));
+    for (i = 0; i < fish.length; i++) {
+      var k = clamp(+fish[i].k, 0.3, K_MAX), f = this._newFish(fish[i].v, k, rng() * 6.283, rng() * 6.283);
+      f.kt = clamp(isFinite(fish[i].kt) ? +fish[i].kt : k, k, K_MAX);
+      f.full = clamp(+fish[i].full || 0, 0, 1.2);
+      this._placeFish(f);
+    }
+    var pads = s.pads.filter(function (p) { return p && PLANTS[p.kind] && isFinite(p.k); }).slice(0, MAX_PADS);
+    for (i = 0; i < pads.length; i++) {
+      var pad = this._newPad(pads[i].kind, clamp(+pads[i].k, 0.5, 1.5), +pads[i].rot || 0);
+      pad.x = clamp(+pads[i].x || 0.5, 0, 1) * this.W; pad.y = clamp(+pads[i].y || 0.5, 0, 1) * this.H;
+      pad.grow = Math.max(0, +pads[i].grow || 0);
+      this.pads.push(pad);
+    }
+    var b = s.basket || {};
+    for (var kind in PRODUCE) this.basket[kind] = Math.max(0, Math.floor(+b[kind] || 0));
+    if (now && s.t && now > s.t) this.ripen((now - s.t) / 1000);
+    this._constrain();
+    return true;
+  };
 
   Pond.prototype._makeGrid = function () {
     var g = chooseGrid(this.W, this.H);
@@ -605,10 +819,19 @@
       if (s.age >= s.life) { this.sparks.splice(i, 1); continue; }
       s.vx *= d; s.vy *= d; s.x += s.vx * DT; s.y += s.vy * DT;
     }
+    this.ripen(DT);
+    for (i = this.pops.length - 1; i >= 0; i--) {
+      this.pops[i].age += DT;
+      if (this.pops[i].age > 1.8) this.pops.splice(i, 1);
+    }
   };
 
   var api = { Pond: Pond, WaveGrid: WaveGrid, shade: shade, chooseGrid: chooseGrid, mulberry32: mulberry32, DT: DT,
-              WANDER: WANDER, FLEE: FLEE, WARY: WARY, CURIOUS: CURIOUS, FEED: FEED, SINK: SINK, BITE: BITE, K_MAX: K_MAX };
+              WANDER: WANDER, FLEE: FLEE, WARY: WARY, CURIOUS: CURIOUS, FEED: FEED, SINK: SINK, BITE: BITE, K_MAX: K_MAX,
+              VARIETIES: VARIETIES, VARIETY_ORDER: VARIETY_ORDER, PLANTS: PLANTS, PLANT_ORDER: PLANT_ORDER,
+              MAX_FISH: MAX_FISH, MAX_PADS: MAX_PADS, START_COINS: START_COINS, YOUNG_K: YOUNG_K,
+              fishValue: fishValue, padValue: padValue, sizeCm: sizeCm,
+              CROP_ORDER: CROP_ORDER, PRODUCE: PRODUCE, isCrop: isCrop, ripeness: ripeness };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PondSim = api;
 })(typeof window !== 'undefined' ? window : this);

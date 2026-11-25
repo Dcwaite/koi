@@ -7,29 +7,19 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #14171f; color: #e9e4d8;
     font: 15px/1.5 Georgia, "Iowan Old Style", serif; }
-  canvas { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block;
+  #c { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block;
     touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent; cursor: pointer; }
   header { position: fixed; left: 24px; top: 20px; pointer-events: none; -webkit-user-select: none; user-select: none; }
   header p { margin: 0; color: #a59f90; transition: opacity 2.5s ease; }
   header.poked p { opacity: 0; }
-  #feed { position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom)); width: 56px; height: 56px; margin-left: -28px;
-    padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer;
-    color: #c9c3b4; background: rgba(16,22,30,0.55); border: 1px solid rgba(233,228,216,0.18);
-    box-shadow: 0 6px 22px rgba(0,0,0,0.3); -webkit-tap-highlight-color: transparent; transition: background 0.2s, border-color 0.2s, color 0.2s; }
-  #feed svg { width: 26px; height: 26px; fill: currentColor; }
-  #feed:hover { background: rgba(30,38,48,0.7); color: #e9e4d8; }
-  #feed[aria-pressed="true"] { color: #e8cd82; background: rgba(60,48,20,0.75); border-color: #c9a85c; }
-  #feed:focus-visible { outline: 2px solid #c9a85c; outline-offset: 3px; }
 </style>
+<link rel="stylesheet" href="shop.css?v=4">
 </head>
 <body>
 <canvas id="c"></canvas>
-<header id="hd"><p id="hint">touch the water.</p></header>
-<button id="feed" type="button" aria-pressed="false" aria-label="Feed the koi" title="Feed the koi (F)">
-  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="9" r="2.4"/><circle cx="15.5" cy="7.5" r="2"/><circle cx="12" cy="15" r="2.6"/><circle cx="18" cy="14.5" r="1.7"/><circle cx="6.5" cy="16.5" r="1.5"/></svg>
-</button>
-<script src="pond.js"></script>
+<header id="hd"><p>tap to feed, drag to stir the water.</p></header>
+<script src="pond.js?v=4"></script>
 <script>
 (function () {
   'use strict';
@@ -69,11 +59,27 @@
     }
   }
 
+  /* ---------- saving: the koi, their sizes, the plants and the coins ---------- */
+  var SAVE_KEY = 'koi-save-v1';
+  var saving = !demo && !seedM;                      // a fixed seed or the demo is for testing: never touch the save
+  if (/[?&]fresh=1/.test(qs) && saving) { try { localStorage.removeItem(SAVE_KEY); } catch (err) {} }
+  function load() {
+    if (!saving) return;
+    try { var s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (s) pond.fromState(s, Date.now()); } catch (err) {}
+  }
+  function save() {
+    if (!saving || !pond) return;
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(pond.toState(Date.now()))); } catch (err) {}
+  }
+  setInterval(save, 5000);
+  window.addEventListener('pagehide', save);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) save(); });
+
   function setup() {
     W = Math.max(50, window.innerWidth); H = Math.max(50, window.innerHeight);
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
-    if (!pond) pond = new S.Pond(W, H, seed); else pond.resize(W, H);
+    if (!pond) { pond = new S.Pond(W, H, seed); load(); } else pond.resize(W, H);
     wcan.width = pond.grid.w; wcan.height = pond.grid.h;
     wimg = wctx.createImageData(pond.grid.w, pond.grid.h);
     buildFloor();
@@ -163,6 +169,13 @@
     ctx.beginPath(); ctx.moveTo(sxs[2], sys[2]);
     for (i = 3; i < NS - 1; i++) ctx.lineTo(sxs[i], sys[i]);
     ctx.stroke();
+    if (look.metal) {
+      // metallic koi: a pearly line of light along the back
+      ctx.globalAlpha = 0.3; ctx.strokeStyle = '#fff7de'; ctx.lineWidth = hw * 0.32;
+      ctx.beginPath(); ctx.moveTo(sxs[1], sys[1] - hw * 0.22);
+      for (i = 2; i < NS - 2; i++) ctx.lineTo(sxs[i], sys[i] - hw * 0.22);
+      ctx.stroke();
+    }
     if (g > 0) {
       // a golden sheen that runs from head to tail and fades
       var at = sxs[0] - (1 - g) * len * 0.9;
@@ -185,6 +198,7 @@
   /* ---------- lily pads ---------- */
   var PAD_TONES = [['#48684b', '#34503c'], ['#516f4a', '#3a5539'], ['#43624f', '#30493d']];
   function drawPad(p) {
+    if (S.isCrop(p.kind)) { drawCrop(p); return; }
     var r = p.r, tone = PAD_TONES[p.tone];
     var tx = clamp(p.tx, -0.6, 0.6), ty = clamp(p.ty, -0.6, 0.6);
     var bob = clamp(p.bob, -1.2, 1.2);
@@ -216,7 +230,7 @@
       ctx.lineTo(Math.cos(a) * r * 0.9, Math.sin(a) * r * 0.9);
     }
     ctx.stroke();
-    if (p.flower) drawFlower(r);
+    if (p.flower) drawFlower(r, p.flower);
     ctx.restore();
 
     // the lit / shaded side as the pad tilts
@@ -235,12 +249,12 @@
     ctx.arc(0, 0, r, 0.22, 6.2832 - 0.22);
     ctx.closePath();
   }
-  function drawFlower(r) {
+  function drawFlower(r, colors) {
     var pr = r * 0.34, i, a;
     ctx.save();
     ctx.translate(-r * 0.3, r * 0.22);
     for (var ring = 0; ring < 2; ring++) {
-      ctx.fillStyle = ring ? '#e3d9cd' : '#cdb9b4';
+      ctx.fillStyle = colors[ring];
       var n = ring ? 6 : 8, rr = pr * (ring ? 0.68 : 1);
       for (i = 0; i < n; i++) {
         a = i * 6.2832 / n + ring * 0.4;
@@ -254,6 +268,172 @@
     ctx.restore();
   }
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+  /* ---------- crops ----------
+     Each crop is drawn by one function, twice: once flat in shadow colour for its shadow on the
+     bottom, then in colour. g is how ripe it is, 0..1; the plant reaches full size at 80%. */
+  var SHADOW = 'rgba(2,6,10,0.3)';
+  function drawCrop(p) {
+    var g = S.ripeness(p), ripe = g >= 1;
+    var r = p.r * (0.5 + 0.5 * Math.min(1, g * 1.25));
+    var bob = clamp(p.bob, -1.2, 1.2), sc = 1 + bob * 0.045;
+    var x = p.x - clamp(p.tx, -0.6, 0.6) * r * 0.35, y = p.y - clamp(p.ty, -0.6, 0.6) * r * 0.35;
+    var draw = p.kind === 'cress' ? cressShape : p.kind === 'chestnut' ? chestnutShape : lotusShape;
+    if (ripe) {
+      // a ripe crop glows softly, so you can see from across the water what is ready to pick
+      var t = performance.now() / 1000, pulse = 0.5 + 0.5 * Math.sin(t * 2.4 + p.rot * 3), hr = r * (1.35 + 0.08 * pulse);
+      var halo = ctx.createRadialGradient(x, y, r * 0.5, x, y, hr);
+      halo.addColorStop(0, 'rgba(240,206,120,' + (0.2 + 0.12 * pulse) + ')'); halo.addColorStop(1, 'rgba(240,206,120,0)');
+      ctx.fillStyle = halo; ctx.fillRect(x - hr, y - hr, 2 * hr, 2 * hr);
+    }
+    ctx.save();
+    ctx.translate(x + 3 + bob * 2.5, y + 5 + bob * 3.5); ctx.scale(sc, sc); ctx.rotate(p.rot);
+    draw(r, g, true);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(x, y); ctx.scale(sc, sc); ctx.rotate(p.rot);
+    draw(r, g, false);
+    ctx.restore();
+  }
+
+  // watercress: a floating mat of small round leaflets that thickens as it grows, with white flowers when ripe
+  function cressShape(r, g, shadow) {
+    var N = 18, n = Math.round(7 + 11 * Math.min(1, g * 1.25)), i, a, d, lr, cx, cy;
+    var greens = ['#5e8c46', '#6f9d50', '#4f7d3d'];
+    for (i = 0; i < n; i++) {
+      a = i * 2.39996; d = r * 0.78 * Math.sqrt((i + 0.5) / N); lr = r * (0.24 - 0.08 * d / r);
+      cx = Math.cos(a) * d; cy = Math.sin(a) * d;
+      ctx.fillStyle = shadow ? SHADOW : greens[i % 3];
+      ctx.beginPath(); ctx.ellipse(cx, cy, lr, lr * 0.82, a, 0, 6.2832); ctx.fill();
+      if (!shadow) {
+        ctx.fillStyle = 'rgba(220,240,190,0.16)';
+        ctx.beginPath(); ctx.ellipse(cx - lr * 0.3, cy - lr * 0.3, lr * 0.4, lr * 0.28, a, 0, 6.2832); ctx.fill();
+      }
+    }
+    if (shadow || g < 1) return;
+    ctx.fillStyle = '#f1f1e4';
+    for (i = 0; i < 6; i++) {
+      a = i * 2.2 + 0.6; d = r * (0.25 + 0.12 * (i % 3));
+      cx = Math.cos(a) * d; cy = Math.sin(a) * d;
+      for (var k = 0; k < 4; k++) { ctx.beginPath(); ctx.arc(cx + Math.cos(k * 1.57) * r * 0.05, cy + Math.sin(k * 1.57) * r * 0.05, r * 0.035, 0, 6.2832); ctx.fill(); }
+    }
+  }
+
+  // water chestnut: a rosette of diamond leaves; when ripe, dark horned nuts show between the outer leaves
+  function chestnutShape(r, g, shadow) {
+    var i, a, outer = g > 0.3;
+    function leaf(a, d0, d1, w, col) {
+      var dm = (d0 + d1) * 0.55, c = Math.cos(a), s = Math.sin(a);
+      ctx.fillStyle = shadow ? SHADOW : col;
+      ctx.beginPath();
+      ctx.moveTo(c * d0, s * d0);
+      ctx.lineTo(c * dm - s * w, s * dm + c * w);
+      ctx.lineTo(c * d1, s * d1);
+      ctx.lineTo(c * dm + s * w, s * dm - c * w);
+      ctx.closePath(); ctx.fill();
+      if (!shadow) { ctx.strokeStyle = 'rgba(200,220,160,0.22)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(c * d0, s * d0); ctx.lineTo(c * d1 * 0.92, s * d1 * 0.92); ctx.stroke(); }
+    }
+    if (outer) for (i = 0; i < 9; i++) leaf(i * 0.698, r * 0.25, r, r * 0.24, i % 2 ? '#4d6b3d' : '#557444');
+    for (i = 0; i < 6; i++) leaf(i * 1.047 + 0.35, r * 0.04, r * 0.62, r * 0.2, i % 2 ? '#5f8049' : '#688a50');
+    if (!shadow) { ctx.fillStyle = '#7a4a38'; ctx.beginPath(); ctx.arc(0, 0, r * 0.09, 0, 6.2832); ctx.fill(); }
+    if (g < 1) return;
+    for (i = 0; i < 3; i++) {
+      a = i * 2.094 + 0.35; var nx = Math.cos(a) * r * 0.72, ny = Math.sin(a) * r * 0.72;
+      drawProduceAt('chestnut', nx, ny, r * 0.34, a + 1.57, shadow);
+    }
+  }
+
+  // lotus: one big round leaf; mid-way a pink flower opens beside it, and when ripe the flower is a seed pod
+  function lotusShape(r, g, shadow) {
+    var i;
+    ctx.fillStyle = SHADOW;
+    if (!shadow) {
+      var lg = ctx.createRadialGradient(-r * 0.25, -r * 0.3, r * 0.1, 0, 0, r);
+      lg.addColorStop(0, '#71946d'); lg.addColorStop(1, '#46685a'); ctx.fillStyle = lg;
+    }
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.2832); ctx.fill();
+    if (!shadow) {
+      ctx.strokeStyle = 'rgba(210,230,200,0.17)'; ctx.lineWidth = 1; ctx.beginPath();
+      for (i = 0; i < 13; i++) { var a = i * 0.4833; ctx.moveTo(Math.cos(a) * r * 0.08, Math.sin(a) * r * 0.08); ctx.lineTo(Math.cos(a) * r * 0.94, Math.sin(a) * r * 0.94); }
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(225,240,215,0.28)'; ctx.beginPath(); ctx.arc(0, 0, r * 0.07, 0, 6.2832); ctx.fill();
+      ctx.fillStyle = 'rgba(235,245,230,0.1)'; ctx.beginPath(); ctx.ellipse(-r * 0.35, -r * 0.4, r * 0.35, r * 0.18, -0.6, 0, 6.2832); ctx.fill();
+    }
+    if (g < 0.45) return;
+    var fx = r * 0.78, fy = -r * 0.5;
+    if (g >= 1) { drawProduceAt('lotus', fx, fy, r * 0.62, 0.4, shadow); return; }
+    // the flower: a bud that opens as the pod ripens inside it
+    var open = Math.min(1, (g - 0.45) / 0.35), pr = r * (0.18 + 0.2 * open);
+    for (var ring = 0; ring < 2; ring++) {
+      var n = ring ? 6 : 8, rr = pr * (ring ? 0.62 : 1);
+      ctx.fillStyle = shadow ? SHADOW : ring ? '#f4d6dd' : '#df9db0';
+      for (i = 0; i < n; i++) {
+        var pa = i * 6.2832 / n + ring * 0.4;
+        ctx.beginPath(); ctx.ellipse(fx + Math.cos(pa) * rr * 0.5 * open, fy + Math.sin(pa) * rr * 0.5 * open, rr * 0.56, rr * 0.3, pa, 0, 6.2832); ctx.fill();
+      }
+    }
+    if (!shadow) { ctx.fillStyle = '#d8c25e'; ctx.beginPath(); ctx.arc(fx, fy, pr * 0.22, 0, 6.2832); ctx.fill(); }
+  }
+
+  /* One piece of produce, centred at (x, y), s across. Used on the plants and in the shop's baskets. */
+  function drawProduceAt(kind, x, y, s, rot, shadow) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot || 0);
+    var h = s / 2, i;
+    if (kind === 'chestnut') {
+      // a dark nut with two curved horns
+      ctx.strokeStyle = shadow ? SHADOW : '#2c1f18'; ctx.lineWidth = Math.max(1, s * 0.11); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-h * 0.55, 0); ctx.quadraticCurveTo(-h * 1.05, -h * 0.1, -h * 1.0, -h * 0.55);
+      ctx.moveTo(h * 0.55, 0); ctx.quadraticCurveTo(h * 1.05, -h * 0.1, h * 1.0, -h * 0.55); ctx.stroke();
+      ctx.fillStyle = shadow ? SHADOW : '#3d2a1f';
+      ctx.beginPath(); ctx.ellipse(0, h * 0.05, h * 0.62, h * 0.5, 0, 0, 6.2832); ctx.fill();
+      if (!shadow) { ctx.fillStyle = 'rgba(230,200,170,0.28)'; ctx.beginPath(); ctx.ellipse(-h * 0.2, -h * 0.12, h * 0.22, h * 0.13, -0.4, 0, 6.2832); ctx.fill(); }
+    } else if (kind === 'lotus') {
+      // a seed pod seen from above: a flat-topped disc dotted with seed holes
+      ctx.fillStyle = shadow ? SHADOW : '#9c914f';
+      if (!shadow) { var pg = ctx.createRadialGradient(-h * 0.3, -h * 0.3, h * 0.1, 0, 0, h); pg.addColorStop(0, '#b6ab66'); pg.addColorStop(1, '#7c7238'); ctx.fillStyle = pg; }
+      ctx.beginPath(); ctx.arc(0, 0, h, 0, 6.2832); ctx.fill();
+      if (!shadow) {
+        ctx.fillStyle = '#463f1d';
+        ctx.beginPath(); ctx.arc(0, 0, h * 0.13, 0, 6.2832); ctx.fill();
+        for (i = 0; i < 7; i++) { var a = i * 0.8976; ctx.beginPath(); ctx.arc(Math.cos(a) * h * 0.58, Math.sin(a) * h * 0.58, h * 0.12, 0, 6.2832); ctx.fill(); }
+      }
+    } else {
+      // a bunch of watercress tied with a pale band
+      var greens = ['#5e8c46', '#73a253', '#517f3f'];
+      for (i = 0; i < 7; i++) {
+        var la = i * 2.4, ld = h * 0.55 * Math.sqrt((i + 0.5) / 7);
+        ctx.fillStyle = shadow ? SHADOW : greens[i % 3];
+        ctx.beginPath(); ctx.arc(Math.cos(la) * ld, Math.sin(la) * ld - h * 0.2, h * 0.36, 0, 6.2832); ctx.fill();
+      }
+      ctx.fillStyle = shadow ? SHADOW : '#5a7a3e'; ctx.fillRect(-h * 0.16, h * 0.15, h * 0.32, h * 0.8);
+      if (!shadow) { ctx.fillStyle = '#e8dcc0'; ctx.fillRect(-h * 0.24, h * 0.35, h * 0.48, h * 0.16); }
+    }
+    ctx.restore();
+  }
+
+  // "+2 lotus pods" rising from a harvest
+  function drawPops() {
+    var pops = pond.pops;
+    for (var i = 0; i < pops.length; i++) {
+      var p = pops[i], t = p.age / 1.8, y = p.y - 34 * Math.sqrt(t), a = t < 0.65 ? 1 : 1 - (t - 0.65) / 0.35;
+      var P = S.PRODUCE[p.kind], text = '+' + p.n + ' ' + (p.n === 1 ? P.one : P.many);
+      ctx.globalAlpha = a;
+      ctx.font = 'bold 17px Georgia, "Iowan Old Style", serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      var w = ctx.measureText(text).width, x = p.x - (w + 26) / 2;
+      drawProduceAt(p.kind, x + 10, y, 18, 0, false);
+      ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(20,12,6,0.85)';
+      ctx.strokeText(text, x + 24, y); ctx.fillStyle = '#f3e3bd'; ctx.fillText(text, x + 24, y);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // the shop draws its koi and plants with the same brushes, on its own canvases
+  function withCtx(c, fn, arg) { var keep = ctx; ctx = c; try { fn(arg); } finally { ctx = keep; } }
+  window.KoiDraw = {
+    fish: function (c, f) { withCtx(c, drawFish, f); },
+    pad: function (c, p) { withCtx(c, drawPad, p); },
+    produce: function (c, kind, x, y, s, rot) { withCtx(c, function () { drawProduceAt(kind, x, y, s, rot, false); }); }
+  };
 
   /* ---------- food ---------- */
   function drawFood() {
@@ -298,6 +478,7 @@
     ctx.drawImage(wcan, 0, 0, W, H);
     drawFood();
     for (i = 0; i < pond.pads.length; i++) drawPad(pond.pads[i]);
+    drawPops();
   }
 
   var raf = 0, last = 0, acc = 0;
@@ -312,49 +493,49 @@
   }
   function start() { if (!raf && !document.hidden) { last = performance.now(); acc = 0; raf = requestAnimationFrame(frame); } }
   function stop() { if (raf) { cancelAnimationFrame(raf); raf = 0; } }
-  document.addEventListener('visibilitychange', function () { if (document.hidden) stop(); else start(); });
-
-  /* ---------- input ---------- */
-  // two hands: a pebble (tap for ripples, drag for a wake) and food (tap to scatter a pinch, drag to sprinkle)
-  var feedBtn = document.getElementById('feed'), hint = document.getElementById('hint');
-  var feeding = false;
-  function setFeeding(on) {
-    feeding = on;
-    feedBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-    hint.textContent = on ? 'tap to scatter food.' : 'touch the water.';
-    hd.className = '';
-  }
-  feedBtn.addEventListener('click', function () { setFeeding(!feeding); });
-  window.addEventListener('keydown', function (e) {
-    if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) setFeeding(!feeding);
+  // crops keep ripening while the page is in the background, even though the water stops
+  var hiddenAt = 0;
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { stop(); hiddenAt = Date.now(); }
+    else { if (hiddenAt) pond.ripen((Date.now() - hiddenAt) / 1000); hiddenAt = 0; start(); }
   });
 
+  /* ---------- input ---------- */
+  // a tap scatters a pinch of food; a drag draws a wake through the water.
+  // A touch only counts as a drag once it has moved past SLOP, so a slightly shaky tap still feeds.
+  var SLOP = 8;
   var pointers = {};
   function pos(e) { var r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   canvas.addEventListener('pointerdown', function (e) {
     e.preventDefault();
     var p = pos(e);
-    p.trail = 0; p.sprinkled = 0;
-    pointers[e.pointerId] = p;
+    pointers[e.pointerId] = { x0: p.x, y0: p.y, x: p.x, y: p.y, drag: false };
     try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
-    if (feeding) pond.feed(p.x, p.y);
-    else pond.poke(p.x, p.y, 1);
-    hd.className = 'poked';
   });
   canvas.addEventListener('pointermove', function (e) {
     var q = pointers[e.pointerId];
     if (!q) return;
     e.preventDefault();
     var p = pos(e);
+    if (!q.drag) {
+      if (Math.hypot(p.x - q.x0, p.y - q.y0) < SLOP) return;
+      q.drag = true;
+      hd.className = 'poked';
+    }
     if (Math.abs(p.x - q.x) + Math.abs(p.y - q.y) < 1) return;
-    p.trail = q.trail + Math.hypot(p.x - q.x, p.y - q.y); p.sprinkled = q.sprinkled;
-    if (!feeding) pond.wake(q.x, q.y, p.x, p.y);
-    else if (p.trail > pond.fishBase * 0.6 && p.sprinkled < 10) { pond.feed(p.x, p.y, 2); p.trail = 0; p.sprinkled++; }
-    pointers[e.pointerId] = p;
+    pond.wake(q.x, q.y, p.x, p.y);
+    q.x = p.x; q.y = p.y;
   });
-  function up(e) { delete pointers[e.pointerId]; }
-  canvas.addEventListener('pointerup', up);
-  canvas.addEventListener('pointercancel', up);
+  canvas.addEventListener('pointerup', function (e) {
+    var q = pointers[e.pointerId];
+    delete pointers[e.pointerId];
+    if (!q || q.drag) return;
+    // a tap on a ripe crop picks it; anywhere else it scatters food
+    if (pond.harvestAt(q.x0, q.y0)) { window.dispatchEvent(new Event('koi:change')); save(); }
+    else pond.feed(q.x0, q.y0);
+    hd.className = 'poked';
+  });
+  canvas.addEventListener('pointercancel', function (e) { delete pointers[e.pointerId]; });
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
   var rt = 0;
@@ -364,6 +545,7 @@
   });
 
   setup();
+  window.KoiGame = { pond: function () { return pond; }, save: save };
   if (demo) {
     // test-only: fixed pebbles, stepped synchronously so a screenshot has something to show
     var drops = [[0, 0.36, 0.46], [45, 0.63, 0.58], [100, 0.52, 0.27], [150, 0.2, 0.75]];
@@ -379,5 +561,6 @@
   start();
 })();
 </script>
+<script src="shop.js?v=4"></script>
 </body>
 </html>
