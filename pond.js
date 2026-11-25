@@ -175,6 +175,11 @@
   var SINK = 5;             // seconds the sinking takes
   var BITE = 0.13;          // how much fuller one pellet makes a koi (1 = full)
   var DIGEST = 150;         // seconds for a full koi to be hungry again
+  /* Growth. Each pellet moves a koi's size a little toward K_MAX, less as it nears it,
+     and the koi swells into its new size over a second or so rather than jumping. */
+  var K_MAX = 1.75;         // the biggest a koi gets, as a multiple of the pond's base fish size
+  var GROW = 0.025;         // share of the remaining way to K_MAX that one pellet gives (about ten full feedings to get near it)
+  var GLOW = 1.4;           // seconds the after-eating glow lasts
 
   var FISH_LOOKS = [
     { body: '#c47a45', patch: '#d9d1bd', spots: [[0.2, 0.5, 0.9], [0.62, -0.4, 0.8]] },
@@ -194,6 +199,7 @@
     this.fish = [];
     this.pads = [];
     this.food = [];
+    this.sparks = [];
     this.eaten = 0;
     this._makeGrid();
     this._sizes();
@@ -218,7 +224,8 @@
       var f = { x: 0, y: 0, a: rng() * 6.283, v: 0, turn: 0, wa: 0, phase: rng() * 6.283,
                 k: 0.8 + rng() * 0.45, len: 0, base: 0, mode: WANDER, timer: 0, t0: 1,
                 fx: 0, fy: 0, tx: 0, ty: 0, look: FISH_LOOKS[i % FISH_LOOKS.length], idx: i,
-                full: 0.3, notice: -1, chase: 0, cool: 0, target: null };
+                full: 0.3, notice: -1, chase: 0, cool: 0, target: null, glow: 0, kt: 0 };
+      f.kt = f.k;
       f.len = this.fishBase * f.k; f.base = f.len * 0.34; f.v = f.base;
       for (t = 0; t < 80; t++) {
         f.x = W * (0.15 + rng() * 0.7); f.y = H * (0.15 + rng() * 0.7);
@@ -386,7 +393,13 @@
   Pond.prototype._stepFish = function (dt) {
     var W = this.W, H = this.H, fish = this.fish, rng = this.rng, i, k;
     for (i = 0; i < fish.length; i++) {
-      var f = fish[i], len = f.len, M = this._margin(f);
+      var f = fish[i];
+      if (f.k < f.kt) {                                  // swell into the new size
+        f.k = Math.min(f.kt, f.k + (f.kt - f.k) * dt * 2.5 + dt * 0.002);
+        f.len = this.fishBase * f.k; f.base = f.len * 0.34;
+      }
+      if (f.glow > 0) f.glow = Math.max(0, f.glow - dt / GLOW);
+      var len = f.len, M = this._margin(f);
       f.wa += (rng() - 0.5) * 0.3; f.wa *= 0.975;
       var da = f.a + f.wa;
       var dx = Math.cos(da), dy = Math.sin(da);
@@ -416,7 +429,14 @@
             this.eaten++;
             f.full = Math.min(1.2, f.full + BITE);
             f.chase = 0;
+            f.kt += (K_MAX - f.kt) * GROW;
+            f.glow = 1;
             this.grid.drop(this.gx(t.x), this.gy(t.y), 0.3);   // the little ring of a mouth at the surface
+            for (var s = 0; s < 6; s++) {                        // a few golden motes where it ate
+              var sa = rng() * 6.283, sv = 10 + rng() * 22;
+              this.sparks.push({ x: t.x, y: t.y, vx: Math.cos(sa) * sv, vy: Math.sin(sa) * sv, age: 0, life: 0.7 + rng() * 0.6 });
+            }
+            if (this.sparks.length > 120) this.sparks.splice(0, this.sparks.length - 120);
             if (f.full >= 1) f.mode = WANDER;
           } else {
             dx = dx * 0.3 + fx / fd * 3; dy = dy * 0.3 + fy / fd * 3;
@@ -474,7 +494,7 @@
       f.v += (vt - f.v) * Math.min(1, dt * accel);
       f.x += Math.cos(f.a) * f.v * dt;
       f.y += Math.sin(f.a) * f.v * dt;
-      f.phase += dt * (2.2 + 7 * f.v / len);
+      f.phase += dt * (2.2 + 7 * f.v / len + 9 * f.glow * f.glow);   // a happy flurry of the tail after a bite
     }
     this._constrain();
   };
@@ -579,10 +599,16 @@
     this._stepFish(DT);
     this._stepPads(DT);
     this._stepFood(DT);
+    for (var i = this.sparks.length - 1; i >= 0; i--) {
+      var s = this.sparks[i], d = Math.exp(-DT * 3);
+      s.age += DT;
+      if (s.age >= s.life) { this.sparks.splice(i, 1); continue; }
+      s.vx *= d; s.vy *= d; s.x += s.vx * DT; s.y += s.vy * DT;
+    }
   };
 
   var api = { Pond: Pond, WaveGrid: WaveGrid, shade: shade, chooseGrid: chooseGrid, mulberry32: mulberry32, DT: DT,
-              WANDER: WANDER, FLEE: FLEE, WARY: WARY, CURIOUS: CURIOUS, FEED: FEED, SINK: SINK, BITE: BITE };
+              WANDER: WANDER, FLEE: FLEE, WARY: WARY, CURIOUS: CURIOUS, FEED: FEED, SINK: SINK, BITE: BITE, K_MAX: K_MAX };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PondSim = api;
 })(typeof window !== 'undefined' ? window : this);

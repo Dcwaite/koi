@@ -131,8 +131,18 @@
     bodyPath(f); ctx.fill(); tailPath(f); ctx.fill();
     ctx.restore();
 
+    var g = f.glow || 0;
+    if (g > 0) {
+      // a warm glow in the water around a koi that has just eaten
+      var gr = len * 0.75, halo = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, gr);
+      halo.addColorStop(0, 'rgba(232,200,120,' + (0.3 * g) + ')');
+      halo.addColorStop(1, 'rgba(232,200,120,0)');
+      ctx.fillStyle = halo; ctx.fillRect(f.x - gr, f.y - gr, 2 * gr, 2 * gr);
+    }
+
     ctx.save();
     ctx.translate(f.x, f.y); ctx.rotate(f.a);
+    if (g > 0) ctx.scale(1, 1 + 0.2 * g * g * g);       // the gulp: a moment rounder in the belly
     ctx.globalAlpha = 0.5; ctx.fillStyle = look.body;
     finsPath(f); ctx.fill();
     ctx.globalAlpha = 0.62;
@@ -153,6 +163,16 @@
     ctx.beginPath(); ctx.moveTo(sxs[2], sys[2]);
     for (i = 3; i < NS - 1; i++) ctx.lineTo(sxs[i], sys[i]);
     ctx.stroke();
+    if (g > 0) {
+      // a golden sheen that runs from head to tail and fades
+      var at = sxs[0] - (1 - g) * len * 0.9;
+      var sheen = ctx.createLinearGradient(at + len * 0.3, 0, at - len * 0.3, 0);
+      sheen.addColorStop(0, 'rgba(255,236,180,0)');
+      sheen.addColorStop(0.5, 'rgba(255,236,180,' + (0.55 * g) + ')');
+      sheen.addColorStop(1, 'rgba(255,236,180,0)');
+      ctx.globalAlpha = 1; ctx.fillStyle = sheen;
+      ctx.fillRect(sxs[NS - 1] - len * 0.4, -hw * 2, len * 1.6, hw * 4);
+    }
     ctx.restore();
     ctx.globalAlpha = 0.55; ctx.fillStyle = '#0c1014';
     ctx.beginPath();
@@ -250,6 +270,14 @@
       ctx.beginPath(); ctx.ellipse(p.x, p.y, r, r * 0.86, p.rot, 0, 6.2832); ctx.fill();
       ctx.globalAlpha = 0.55 * a; ctx.fillStyle = '#d7b07a';
       ctx.beginPath(); ctx.arc(p.x - r * 0.32, p.y - r * 0.34, r * 0.36, 0, 6.2832); ctx.fill();
+    }
+    // golden motes where a koi has just eaten
+    var sparks = pond.sparks;
+    ctx.fillStyle = '#f0d690';
+    for (i = 0; i < sparks.length; i++) {
+      var s = sparks[i], t = s.age / s.life;
+      ctx.globalAlpha = (1 - t) * (1 - t) * 0.9;
+      ctx.beginPath(); ctx.arc(s.x, s.y, 1.1 + 1.6 * (1 - t), 0, 6.2832); ctx.fill();
     }
     ctx.globalAlpha = 1;
   }

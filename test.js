@@ -187,6 +187,35 @@ feedRun(1920, 1080, 3);
   check('and get hungry again', hungryLater || later, 'fullness ' + p.fish.map(function (f) { return f.full.toFixed(2); }).join(' '));
 })();
 
+// ---- growth: eating makes a koi bigger, a little at a time, up to a limit, and it still fits in the pond
+(function () {
+  var p = new S.Pond(1000, 720, 8), i, k, out = 0, maxJump = 0;
+  var len0 = p.fish.map(function (f) { return f.len; });
+  var eaten0 = p.fish.map(function () { return 0; });
+  for (var round = 0; round < 24; round++) {
+    p.fish.forEach(function (f) { f.full = 0; });        // skip the digesting, so the test is quick
+    for (k = 0; k < 9; k++) p.feed(150 + (k % 5) * 170, 200 + (k % 3) * 160 + (round % 2) * 60);
+    for (i = 0; i < 60 * 30; i++) {
+      var before = p.fish.map(function (f) { return f.len; });
+      p.step();
+      for (k = 0; k < p.fish.length; k++) {
+        var f = p.fish[k];
+        maxJump = Math.max(maxJump, (f.len - before[k]) / before[k]);
+        if (!(f.x >= 0 && f.x <= 1000 && f.y >= 0 && f.y <= 720)) out++;
+      }
+    }
+    if (round === 0) for (k = 0; k < p.fish.length; k++) eaten0[k] = p.fish[k].len / len0[k];
+  }
+  var grewAfterOne = eaten0.every(function (r) { return r > 1.02; });
+  var capped = p.fish.every(function (f) { return f.k <= S.K_MAX + 1e-9; });
+  var nearCap = p.fish.every(function (f) { return f.k > S.K_MAX * 0.9; });
+  check('koi grow after a feeding', grewAfterOne, 'size after first feeding x' + eaten0.map(function (r) { return r.toFixed(2); }).join(' x'));
+  check('growth is smooth, never a jump', maxJump < 0.01, 'largest growth in one step ' + (maxJump * 100).toFixed(2) + '%');
+  check('koi stop growing at the limit', capped && nearCap, 'sizes after 24 feedings ' + p.fish.map(function (f) { return f.k.toFixed(2); }).join(' ') + ' (limit ' + S.K_MAX + ')');
+  check('big koi still stay in the pond', out === 0, out + ' violations');
+  check('sparks are cleaned up', p.sparks.length < 20, p.sparks.length + ' left');
+})();
+
 // ---- 8. timing
 (function () {
   [[1000, 720], [375, 812], [1920, 1080]].forEach(function (s) {
