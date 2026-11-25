@@ -153,6 +153,7 @@
 .banner span { font-size: 15px; line-height: 1.35; color: #f6e7c4; text-shadow: 0 1px 0 rgba(0,0,0,0.4); }
 .banner.feat { background: linear-gradient(180deg, #e7c878, #b98f3e); box-shadow: 0 4px 0 var(--brass-dark), 0 12px 26px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,250,220,0.6); }
 .banner.feat b, .banner.feat span { color: #2a1d0c; text-shadow: 0 1px 0 rgba(255,245,210,0.4); }
+.banner.court { background: linear-gradient(180deg, #a5586c, #6c3346); box-shadow: 0 4px 0 #4a2230, 0 12px 26px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,215,225,0.35); }
 .banner.go { opacity: 0; transform: translateY(-12px); }
 @keyframes banner-in { from { opacity: 0; transform: translateY(-16px); } }
 

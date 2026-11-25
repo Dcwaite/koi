@@ -362,7 +362,7 @@
     b.innerHTML = '<b></b><span></span>';
     b.querySelector('b').textContent = n.title; b.querySelector('span').textContent = n.text;
     news.appendChild(b);
-    if (n.kind !== 'born') sfx('feat');
+    if (n.kind !== 'born' && n.kind !== 'court') sfx('feat');
     setTimeout(function () { b.classList.add('go'); }, 3200);
     setTimeout(function () { b.remove(); next(); }, 3700);
   }
@@ -371,6 +371,12 @@
       var V = S.VARIETIES[n.id];
       if (n.kind === 'born') say('born', 'A baby ' + V.name + '!', n.first ? 'The first ever born in your pond. Added to your koi book.' : 'Born in your pond.');
       else if (n.kind === 'grown') say('feat', V.name + ', fully grown', 'Grown to ' + Math.round(S.GROWN_K * 24) + ' cm. Marked in your koi book.');
+      else if (n.kind === 'court') {
+        var A = S.VARIETIES[n.a].name, B = S.VARIETIES[n.b].name;
+        var an = function (w) { return (/^[AEIOU]/.test(w) ? 'an ' : 'a ') + w; };
+        var pair = A === B ? 'Two ' + A + ' koi are' : an(A).replace(/^a/, 'A') + ' and ' + an(B) + ' are';
+        say('court', 'Two koi are courting', pair + ' circling each other. A baby is on the way.');
+      }
       else if (n.kind === 'treasure') say('born', 'Found: ' + S.TREASURES[n.id].name, 'The first one. Added to your koi book, and you can sell it at the shop.');
       else if (n.kind === 'feat') {
         var f = S.FEATS.filter(function (x) { return x.id === n.id; })[0];

@@ -241,6 +241,7 @@
   var FED = 0.35;           // both parents need to have eaten at least this well
   var BREED_GAP = [60, 130];  // seconds between chances, while the pond has grown, fed koi in it
   var PARENT_PULL = 4, PLANT_PULL = 1.5;
+  var COURT_TIME = 8;       // seconds two koi glow and circle each other before their baby comes
   var NURSERY = {
     pad:      ['chagoi', 'hariwake'],
     white:    ['tancho', 'kohaku'],
@@ -330,6 +331,7 @@
     this.news = [];            // what was just achieved, for the page to announce: { kind, id }
     this.bornCount = 0;
     this.breedTimer = 45;      // a first chance comes fairly soon; after that it is BREED_GAP
+    this.courting = null;      // { a, b, t }: two koi circling each other before a baby comes
     this.basket = { cress: 0, chestnut: 0, lotus: 0 };
     this.trove = {};           // treasure kind -> how many you are holding to sell
     this.found = {};           // treasure kind -> how many ever found, for the koi book
@@ -380,7 +382,7 @@
     var f = { x: 0, y: 0, a: a, v: 0, turn: 0, wa: 0, phase: phase,
               k: k, len: 0, base: 0, mode: WANDER, timer: 0, t0: 1,
               fx: 0, fy: 0, tx: 0, ty: 0, variety: variety, look: VARIETIES[variety].look, idx: this.fish.length,
-              full: 0.3, notice: -1, chase: 0, cool: 0, target: null, glow: 0, kt: k, carry: null };
+              full: 0.3, notice: -1, chase: 0, cool: 0, target: null, glow: 0, kt: k, carry: null, mate: null, love: 0 };
     f.len = this.fishBase * f.k; f.base = f.len * 0.34; f.v = f.base;
     return f;
   };
@@ -650,21 +652,68 @@
     if (this.breedTimer > 0) return;
     var rng = this.rng;
     this.breedTimer = BREED_GAP[0] + rng() * (BREED_GAP[1] - BREED_GAP[0]);
-    this.breed();
+    if (!this.courting) this.court();
+  };
+  /* Two grown, fed koi begin to court: they glow and circle each other, and after COURT_TIME their baby is born.
+     Returns [a, b], or null if there are not two who could, or no room. */
+  Pond.prototype.court = function (a, b) {
+    if (this.courting || this.fish.length >= MAX_FISH) return null;
+    if (!a || !b) {
+      var ps = this.parents(), rng = this.rng;
+      if (ps.length < 2) return null;
+      var i = (rng() * ps.length) | 0, j = (rng() * (ps.length - 1)) | 0;
+      if (j >= i) j++;
+      a = ps[i]; b = ps[j];
+    }
+    a.mate = b; b.mate = a;
+    this.courting = { a: a, b: b, t: 0 };
+    this.news.push({ kind: 'court', a: a.variety, b: b.variety });
+    this._cue('court', (a.x + b.x) / 2, 0.5);
+    return [a, b];
+  };
+  Pond.prototype._endCourt = function () {
+    var c = this.courting;
+    if (!c) return;
+    if (c.a.mate === c.b) c.a.mate = null;
+    if (c.b.mate === c.a) c.b.mate = null;
+    this.courting = null;
+  };
+  Pond.prototype._court = function (dt) {
+    var c = this.courting;
+    if (!c) return;
+    // if one of them has gone (sold), or the pond filled up meanwhile, it comes to nothing
+    if (this.fish.indexOf(c.a) < 0 || this.fish.indexOf(c.b) < 0 || this.fish.length >= MAX_FISH) { this._endCourt(); return; }
+    c.t += dt;
+    var rng = this.rng;
+    // little motes rise around them as they circle
+    if (rng() < dt * 7) {
+      var f = rng() < 0.5 ? c.a : c.b, sa = rng() * 6.283;
+      this.sparks.push({ x: f.x + Math.cos(sa) * f.len * 0.3, y: f.y + Math.sin(sa) * f.len * 0.3, vx: Math.cos(sa) * 10, vy: Math.sin(sa) * 10 - 6,
+                         age: 0, life: 0.9 + rng() * 0.7, love: true });
+    }
+    if (c.t >= COURT_TIME) {
+      var a = c.a, b = c.b;
+      this._endCourt();
+      this.breed(a, b);
+    }
   };
   /* Two parents have a baby, if there are two and there is room. Returns the baby, or null. */
-  Pond.prototype.breed = function () {
+  Pond.prototype.breed = function (a, b) {
     if (this.fish.length >= MAX_FISH) return null;
-    var ps = this.parents(), rng = this.rng;
-    if (ps.length < 2) return null;
-    var i = (rng() * ps.length) | 0, j = (rng() * (ps.length - 1)) | 0;
-    if (j >= i) j++;
-    var a = ps[i], b = ps[j];
+    var rng = this.rng;
+    if (!a || !b) {
+      var ps = this.parents();
+      if (ps.length < 2) return null;
+      var i = (rng() * ps.length) | 0, j = (rng() * (ps.length - 1)) | 0;
+      if (j >= i) j++;
+      a = ps[i]; b = ps[j];
+    }
     var w = babyOdds(a.variety, b.variety, this.pads), sum = 0, k;
     for (k in w) sum += w[k];
     var r = rng() * sum, pick = a.variety;
     for (k in w) { r -= w[k]; if (r <= 0) { pick = k; break; } }
-    a.full -= 0.25; b.full -= 0.25;
+    a.full = Math.max(0, a.full - 0.25); b.full = Math.max(0, b.full - 0.25);
+    a.glow = b.glow = 1;
     var f = this._newFish(pick, FRY_K, rng() * 6.283, rng() * 6.283);
     var M = this._margin(f);
     f.x = clamp((a.x + b.x) / 2, M, this.W - M); f.y = clamp((a.y + b.y) / 2, M, this.H - M);
@@ -678,9 +727,9 @@
     this._feat('fry');
     this._keep(f);
     this.grid.drop(this.gx(f.x), this.gy(f.y), 0.45);
-    for (var s = 0; s < 14; s++) {
-      var sa = rng() * 6.283, sv = 12 + rng() * 26;
-      this.sparks.push({ x: f.x, y: f.y, vx: Math.cos(sa) * sv, vy: Math.sin(sa) * sv, age: 0, life: 0.8 + rng() * 0.8 });
+    for (var s = 0; s < 26; s++) {
+      var sa = rng() * 6.283, sv = 14 + rng() * 34;
+      this.sparks.push({ x: f.x, y: f.y, vx: Math.cos(sa) * sv, vy: Math.sin(sa) * sv, age: 0, life: 0.9 + rng() * 1, love: s % 2 === 0 });
     }
     this._cue('fry', f.x, 0.5);
     return f;
@@ -902,6 +951,8 @@
         f.len = this.fishBase * f.k; f.base = f.len * 0.34;
       }
       if (f.glow > 0) f.glow = Math.max(0, f.glow - dt / GLOW);
+      f.love += ((f.mate ? 1 : 0) - f.love) * Math.min(1, dt * (f.mate ? 1.2 : 0.6));
+      if (f.love < 0.002) f.love = 0;
       var len = f.len, M = this._margin(f);
       f.wa += (rng() - 0.5) * 0.3; f.wa *= 0.975;
       var da = f.a + f.wa;
@@ -911,7 +962,8 @@
       // hunger: a calm koi notices food after a moment, each in its own time
       f.full = Math.max(0, f.full - dt / DIGEST);
       if (f.cool > 0) f.cool -= dt;
-      if (f.mode === WANDER || f.mode === CURIOUS) {
+      if (f.mate && f.mode === FEED) f.mode = WANDER;
+      if ((f.mode === WANDER || f.mode === CURIOUS) && !f.mate) {
         if (f.full < 1 && f.cool <= 0 && this.food.length) {
           if (f.notice < 0) f.notice = 0.25 + rng() * 1.1;
           f.notice -= dt;
@@ -974,6 +1026,15 @@
           dx += ex / ed * 2.4; dy += ey / ed * 2.4;
           vt = f.base * (0.5 + 1.2 * Math.min(1, ed / (len * 2.5)));
         }
+      }
+
+      // courting: draw close to its mate and circle round it, side by side
+      if (f.mate && (f.mode === WANDER || f.mode === CURIOUS)) {
+        var m2 = f.mate, cx = m2.x - f.x, cy = m2.y - f.y, cd = Math.hypot(cx, cy) || 1;
+        var want = (len + m2.len) * 0.55, pull = clamp((cd - want) / len, -1, 2);
+        dx = dx * 0.3 + cx / cd * pull * 2.2 - cy / cd * 1.6;
+        dy = dy * 0.3 + cy / cd * pull * 2.2 + cx / cd * 1.6;
+        vt = f.base * 1.15; maxTurn = 2.6;
       }
 
       // walls: push toward the inside, harder the closer the fish is (softer while going for food near the edge)
@@ -1116,6 +1177,7 @@
     }
     this.ripen(DT);
     this._breed(DT);
+    this._court(DT);
     this._find(DT);
     if (this.step_ % 60 === 0) this._checkFeats();   // coins and pond size, once a second
     for (i = this.pops.length - 1; i >= 0; i--) {
@@ -1131,7 +1193,7 @@
               fishValue: fishValue, padValue: padValue, sizeCm: sizeCm,
               CROP_ORDER: CROP_ORDER, PRODUCE: PRODUCE, isCrop: isCrop, ripeness: ripeness,
               ADULT_K: ADULT_K, GROWN_K: GROWN_K, FRY_K: FRY_K, NURSERY: NURSERY, FEATS: FEATS, favouredBy: favouredBy,
-              TREASURES: TREASURES, TREASURE_ORDER: TREASURE_ORDER, findOdds: findOdds, MAX_CARRY: MAX_CARRY };
+              TREASURES: TREASURES, TREASURE_ORDER: TREASURE_ORDER, findOdds: findOdds, MAX_CARRY: MAX_CARRY, COURT_TIME: COURT_TIME };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PondSim = api;
 })(typeof window !== 'undefined' ? window : this);

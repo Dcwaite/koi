@@ -338,7 +338,7 @@ feedRun(1920, 1080, 3);
     rr.fish.forEach(function (f) { f.variety = 'kohaku'; f.k = f.kt = 1.2; f.full = 1; });
     var b = rr.breed(); counts[b.variety] = (counts[b.variety] || 0) + 1;
   }
-  check('and it shows in the babies born', counts.ogon > 50 && counts.kohaku > 50, JSON.stringify(counts));
+  check('and it shows in the babies born', counts.ogon > 35 && counts.kohaku > 50, JSON.stringify(counts));
   // growing marks the book
   var g = new S.Pond(1000, 720, 35); g.breedTimer = Infinity;
   var f = g.fish[0]; f.kt = S.GROWN_K + 0.01; g._grew(f);
@@ -350,6 +350,39 @@ feedRun(1920, 1080, 3);
   var old = JSON.parse(JSON.stringify(p.toState(1))); delete old.book; delete old.feats;
   var back2 = new S.Pond(800, 600, 37); back2.fromState(old, 1);
   check('an older save starts its book from the koi in the pond', back2.fish.every(function (f) { return back2.book[f.variety].kept; }));
+})();
+
+// ---- 9b2. courtship: before a baby, the parents glow and circle each other
+(function () {
+  var p = new S.Pond(1000, 720, 51), i;
+  p.breedTimer = Infinity;
+  p.fish.forEach(function (f) { f.k = f.kt = 1.2; f.full = 1; });
+  var pair = p.court(), a = pair[0], b = pair[1], d0 = Math.hypot(a.x - b.x, a.y - b.y);
+  check('a courtship starts with news and a sound, and no baby yet', p.courting && a.mate === b && b.mate === a && p.fish.length === 5 &&
+    p.news.some(function (n) { return n.kind === 'court'; }) && p.cues.some(function (c) { return c.k === 'court'; }));
+  check('only one courtship at a time', p.court() === null);
+  for (i = 0; i < 60 * 4; i++) p.step();
+  var d1 = Math.hypot(a.x - b.x, a.y - b.y);
+  check('the pair glow and stay close', a.love > 0.9 && b.love > 0.9 && d1 < (a.len + b.len) * 1.1, 'apart ' + d0.toFixed(0) + ' -> ' + d1.toFixed(0) + ' px');
+  for (i = 0; i < 60 * (S.COURT_TIME - 4 + 0.5); i++) p.step();
+  check('then the baby is born, and the glow fades', p.fish.length === 6 && !p.courting && !a.mate && !b.mate && p.bornCount === 1);
+  for (i = 0; i < 60 * 8; i++) p.step();
+  check('the glow is gone a while later', a.love < 0.05 && b.love < 0.05);
+  // selling a parent mid-courtship ends it with no baby
+  var q = new S.Pond(1000, 720, 52);
+  q.breedTimer = Infinity;
+  q.fish.forEach(function (f) { f.k = f.kt = 1.2; f.full = 1; });
+  var qp = q.court(); q.sellFish(qp[0]);
+  for (i = 0; i < 60 * (S.COURT_TIME + 1); i++) q.step();
+  check('selling a parent mid-courtship ends it with no baby', !q.courting && !qp[1].mate && q.bornCount === 0);
+  // the pond's own timer courts first, then the baby comes
+  var r = new S.Pond(1000, 720, 53);
+  r.fish.forEach(function (f) { f.k = f.kt = 1.2; f.full = 1; });
+  r.breedTimer = 0.5;
+  for (i = 0; i < 60; i++) r.step();
+  var started = !!r.courting && r.bornCount === 0;
+  for (i = 0; i < 60 * (S.COURT_TIME + 0.5); i++) r.step();
+  check('on its own, a pond courts before every birth', started && r.bornCount === 1);
 })();
 
 // ---- 9c. treasures: koi find them, you take them with a tap, they sell

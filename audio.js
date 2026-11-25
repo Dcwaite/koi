@@ -37,7 +37,7 @@
   function gainOf(k) { return BASE[k] * vol[k] * vol[k] / 0.64; }
   function save() { try { localStorage.setItem(PREF, JSON.stringify({ sound: vol.sound, water: vol.water, music: vol.music, theme: themeId })); } catch (e) {} }
 
-  var ctx = null, master, sfxBus, ambBus, musicBus, genBus;
+  var ctx = null, master, sfxBus, ambBus, musicBus, genBus, bellBus;
   var buf = {}, loading = {}, lastPick = {}, lastAt = {};
   var started = false;
 
@@ -120,6 +120,13 @@
       genBus = ctx.createGain(); genBus.gain.value = 1.6;
       var hall = makeHall(), wet = ctx.createGain(); wet.gain.value = 0.55;
       genBus.connect(musicBus); genBus.connect(hall); hall.connect(wet); wet.connect(musicBus);
+      // bells for the big moments in the pond (a courtship, a birth): sound effects, in a hall of their own
+      bellBus = ctx.createGain(); bellBus.gain.value = 1;
+      var hall2 = makeHall(), wet2 = ctx.createGain(); wet2.gain.value = 0.6;
+      bellBus.connect(sfxBus); bellBus.connect(hall2); hall2.connect(wet2); wet2.connect(sfxBus);
+      SR = ctx.sampleRate;
+      // the bells are made by hand, sample by sample: make them a few at a time now, so a courtship never stutters
+      [74, 78, 81, 83, 86, 90, 62, 69].forEach(function (m, i) { setTimeout(function () { bell(m); }, 1500 + i * 250); });
       amb = new Looper('amb_day', ambBus);
       rain = new Looper('amb_rain', musicBus);
       SMALL.forEach(load);                                  // the small sounds first, then the long recordings
@@ -165,6 +172,7 @@
 
   /* Things that happen on the water, from the pond's cue list. x runs 0..1 across the screen; s is 0..1. */
   function cue(c) {
+    if (!ctx || ctx.state !== 'running') return;            // no sound until the first tap wakes it
     var pan = (c.x - 0.5) * 1.2, s = c.s;
     switch (c.k) {
       case 'food': play('food', 0.32, 1, pan, 0.08); play('plop', 0.12, 1.6, pan, 0.08); break;
@@ -174,7 +182,8 @@
       case 'sip': play('eat', 0.1, 1.25, pan, 0.3); break;
       case 'harvest': play('plant', 0.4, 1.1, pan); play('twinkle', 0.3, 1.2, pan); break;
       case 'ripe': play('twinkle', 0.16, 1.35, pan, 1.2); break;
-      case 'fry': play('bubbles', 0.4, 1.1, pan); play('twinkle', 0.32, 1.25, pan); break;
+      case 'fry': play('bubbles', 0.4, 1.1, pan); play('twinkle', 0.32, 1.25, pan); birthBells(pan); break;
+      case 'court': courtBells(pan); break;
       case 'find': play('bubbles', 0.22, 1.3, pan); play('twinkle', 0.18, 1.5, pan, 0.5); break;
       case 'treasure': play('coin', 0.34, 1.05 + 0.25 * s, pan); play('twinkle', 0.3, 1.1 + 0.3 * s, pan); break;
     }
@@ -260,13 +269,28 @@
     }
     return (notes[k] = b);
   }
-  function note(b, at, v, pan, rate) {
+  function note(b, at, v, pan, rate, bus) {
     var src = ctx.createBufferSource(); src.buffer = b; if (rate) src.playbackRate.value = rate;
     var g = ctx.createGain(); g.gain.value = v;
     src.connect(g);
-    if (ctx.createStereoPanner) { var p = ctx.createStereoPanner(); p.pan.value = pan || 0; g.connect(p); p.connect(genBus); }
-    else g.connect(genBus);
+    if (ctx.createStereoPanner) { var p = ctx.createStereoPanner(); p.pan.value = pan || 0; g.connect(p); p.connect(bus || genBus); }
+    else g.connect(bus || genBus);
     src.start(at);
+  }
+  /* Two koi begin to court: a slow rising phrase of bells, answered by a softer one, like two voices. */
+  function courtBells(pan) {
+    if (!ctx || !vol.sound || ctx.state !== 'running') return;
+    var t = ctx.currentTime + 0.05, up = [74, 78, 81, 83, 86], i;          // D F# A B D
+    for (i = 0; i < up.length; i++) note(bell(up[i]), t + i * 0.32, 0.3 - i * 0.02, pan - 0.25, 0, bellBus);
+    var ans = [81, 83, 86, 90];                                             // A B D F#, answering higher
+    for (i = 0; i < ans.length; i++) note(bell(ans[i]), t + 1.9 + i * 0.26, 0.2, pan + 0.25, 0, bellBus);
+    play('bubbles', 0.18, 1.2, pan);
+  }
+  /* A baby is born: a full, open chord, struck together and let ring, under the bubbles and a twinkle. */
+  function birthBells(pan) {
+    if (!ctx || !vol.sound || ctx.state !== 'running') return;
+    var t = ctx.currentTime + 0.03, chord = [62, 69, 74, 78, 81];          // D A D F# A
+    for (var i = 0; i < chord.length; i++) note(bell(chord[i]), t + i * 0.035, 0.24, pan + (i - 2) * 0.12, 0, bellBus);
   }
 
   // the "in" scale on D: D Eb G A Bb, the sound of old Japanese court and koto music

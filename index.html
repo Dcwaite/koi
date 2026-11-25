@@ -22,13 +22,13 @@
     -webkit-tap-highlight-color: transparent; cursor: pointer; }
   body.calm #shopBtn { opacity: 0; transition: opacity 1.2s ease-in; }
 </style>
-<link rel="stylesheet" href="shop.css?v=14">
+<link rel="stylesheet" href="shop.css?v=16">
 </head>
 <body>
 <canvas id="c"></canvas>
-<script src="pond.js?v=14"></script>
-<script src="sky.js?v=14"></script>
-<script src="audio.js?v=14"></script>
+<script src="pond.js?v=16"></script>
+<script src="sky.js?v=16"></script>
+<script src="audio.js?v=16"></script>
 <script>
 (function () {
   'use strict';
@@ -166,6 +166,16 @@
     bodyPath(f); ctx.fill(); tailPath(f); ctx.fill();
     ctx.restore();
 
+    var lv = f.love || 0;
+    if (lv > 0.01) {
+      // courting: a soft rose-and-gold light that breathes around both of them
+      var pulse = 0.5 + 0.5 * Math.sin(performance.now() / 1000 * 3.2 + (f.idx || 0)), lr = len * (1.05 + 0.3 * pulse);
+      var lh = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, lr);
+      lh.addColorStop(0, 'rgba(255,170,192,' + (0.7 * lv * (0.75 + 0.25 * pulse)) + ')');
+      lh.addColorStop(0.5, 'rgba(250,190,150,' + (0.3 * lv) + ')');
+      lh.addColorStop(1, 'rgba(244,196,120,0)');
+      ctx.fillStyle = lh; ctx.fillRect(f.x - lr, f.y - lr, 2 * lr, 2 * lr);
+    }
     var g = f.glow || 0;
     if (g > 0) {
       // a warm glow in the water around a koi that has just eaten
@@ -204,6 +214,11 @@
       ctx.beginPath(); ctx.moveTo(sxs[1], sys[1] - hw * 0.22);
       for (i = 2; i < NS - 2; i++) ctx.lineTo(sxs[i], sys[i] - hw * 0.22);
       ctx.stroke();
+    }
+    if (lv > 0.01) {
+      // and a blush along the body
+      ctx.globalAlpha = 0.4 * lv; ctx.fillStyle = '#ffb8ca';
+      bodyPath(f); ctx.fill();
     }
     if (g > 0) {
       // a golden sheen that runs from head to tail and fades
@@ -576,11 +591,11 @@
       ctx.globalAlpha = 0.55 * a; ctx.fillStyle = '#d7b07a';
       ctx.beginPath(); ctx.arc(p.x - r * 0.32, p.y - r * 0.34, r * 0.36, 0, 6.2832); ctx.fill();
     }
-    // golden motes where a koi has just eaten
+    // golden motes where a koi has just eaten (rose ones around courting koi)
     var sparks = pond.sparks;
-    ctx.fillStyle = '#f0d690';
     for (i = 0; i < sparks.length; i++) {
       var s = sparks[i], t = s.age / s.life;
+      ctx.fillStyle = s.love ? '#ffc2d2' : '#f0d690';
       ctx.globalAlpha = (1 - t) * (1 - t) * 0.9;
       ctx.beginPath(); ctx.arc(s.x, s.y, 1.1 + 1.6 * (1 - t), 0, 6.2832); ctx.fill();
     }
@@ -634,8 +649,8 @@
   function playCues() {
     var c = pond.cues;
     if (!c.length) return;
-    if (window.KoiAudio) for (var i = 0; i < c.length; i++) KoiAudio.cue(c[i]);
-    c.length = 0;
+    var list = c.splice(0, c.length);                   // emptied first, so one bad sound can never repeat every frame
+    if (window.KoiAudio) for (var i = 0; i < list.length; i++) { try { KoiAudio.cue(list[i]); } catch (e) {} }
   }
   function start() { if (!raf && !document.hidden) { last = performance.now(); acc = 0; raf = requestAnimationFrame(frame); } }
   function stop() { if (raf) { cancelAnimationFrame(raf); raf = 0; } }
@@ -731,7 +746,7 @@
   start();
 })();
 </script>
-<script src="shop.js?v=14"></script>
-<script src="menu.js?v=14"></script>
+<script src="shop.js?v=16"></script>
+<script src="menu.js?v=16"></script>
 </body>
 </html>
